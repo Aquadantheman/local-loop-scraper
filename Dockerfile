@@ -1,17 +1,16 @@
-# Use Apify's base image with Playwright pre-installed
-FROM apify/actor-node-playwright-chrome:20
+# Use Apify's base image with Playwright
+FROM apify/actor-node-playwright-chrome:latest
 
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci --omit=dev
+# Install dependencies and browsers
+RUN npm ci --omit=dev \
+    && npx playwright install chromium \
+    && npx playwright install-deps
 
 # Copy source code
 COPY . ./
 
-# Install Playwright browsers
-RUN npx playwright install chromium
-
-# Set the command to run
-CMD ["npm", "start"]
+# Start command
+CMD npm start
