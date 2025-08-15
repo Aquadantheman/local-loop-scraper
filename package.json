@@ -1,0 +1,17 @@
+{
+  "name": "west-islip-events-scraper",
+  "version": "1.0.0", 
+  "type": "module",
+  "description": "Local Loop - West Islip Event Scraper",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "node src/main.js"
+  },
+  "dependencies": {
+    "apify": "^3.4.4",
+    "playwright": "^1.46.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}
