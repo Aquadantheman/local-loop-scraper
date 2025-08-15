@@ -1,8 +1,8 @@
 {
-  "name": "west-islip-events-scraper",
+  "name": "local-loop-scraper",
   "version": "1.0.0", 
   "type": "module",
-  "description": "Local Loop - West Islip Event Scraper",
+  "description": "Local Loop - Multi-Town Event Scraper (Scalable Architecture)",
   "main": "src/main.js",
   "scripts": {
     "start": "node src/main.js"
@@ -13,5 +13,8 @@
   },
   "engines": {
     "node": ">=16.0.0"
-  }
+  },
+  "keywords": ["local-events", "scraper", "newsletter", "local-loop", "multi-town"],
+  "author": "Your Name",
+  "license": "MIT"
 }
