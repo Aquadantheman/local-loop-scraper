@@ -1,21 +1,31 @@
 {
   "name": "local-loop-scraper",
-  "version": "1.0.0", 
-  "type": "module",
-  "description": "Local Loop - Multi-Town Event Scraper (Scalable Architecture)",
+  "version": "1.0.0",
+  "description": "Local Loop - West Islip Event Scraper",
   "main": "src/main.js",
+  "type": "module",
   "scripts": {
     "start": "node src/main.js",
-    "postinstall": "npx playwright install chromium"
+    "test": "node --test",
+    "dev": "node --watch src/main.js"
   },
   "dependencies": {
-    "apify": "^3.4.4",
-    "playwright": "^1.46.0"
+    "apify": "^3.1.10",
+    "playwright": "^1.40.0",
+    "crypto": "^1.0.1"
   },
+  "devDependencies": {
+    "@types/node": "^20.0.0"
+  },
+  "keywords": [
+    "scraping",
+    "events",
+    "local-news",
+    "apify"
+  ],
+  "author": "Local Loop",
+  "license": "MIT",
   "engines": {
-    "node": ">=16.0.0"
-  },
-  "keywords": ["local-events", "scraper", "newsletter", "local-loop", "multi-town"],
-  "author": "Your Name",
-  "license": "MIT"
+    "node": ">=18.0.0"
+  }
 }
