@@ -5,7 +5,8 @@
   "description": "Local Loop - Multi-Town Event Scraper (Scalable Architecture)",
   "main": "src/main.js",
   "scripts": {
-    "start": "node src/main.js"
+    "start": "node src/main.js",
+    "postinstall": "npx playwright install chromium"
   },
   "dependencies": {
     "apify": "^3.4.4",
