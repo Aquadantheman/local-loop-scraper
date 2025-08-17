@@ -1,6 +1,6 @@
-// src/main.js - Local Loop Event Scraper (Correct Puppeteer Import)
+// src/main.js - Local Loop Event Scraper (Use System Browser)
 import { Actor, log } from 'apify';
-import puppeteer from 'puppeteer';
+import puppeteer from 'puppeteer-core';
 import { scrapeWestIslip } from './towns/west-islip/index.js';
 import { sendToAirtable, verifyAirtableSetup } from './utils/airtable.js';
 import { parseEventDate } from './utils/date-parser.js';
@@ -23,17 +23,22 @@ await Actor.main(async () => {
     airtableReady = await verifyAirtableSetup(process.env.AIRTABLE_TOKEN, process.env.AIRTABLE_BASE_ID);
   }
 
-  // Initialize browser using direct Puppeteer (comes with Apify)
-  log.info('🌐 Launching browser with Puppeteer...');
+  // Initialize browser using system Chrome that comes with Apify
+  log.info('🌐 Launching browser with system Chrome...');
   
   const browser = await puppeteer.launch({
-    headless: !input.debug,
+    headless: input.debug ? false : "new", // Use new headless mode
+    executablePath: '/usr/bin/google-chrome-stable', // Use system Chrome
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
       '--disable-extensions',
-      '--disable-gpu'
+      '--disable-gpu',
+      '--disable-web-security',
+      '--disable-features=VizDisplayCompositor',
+      '--no-first-run',
+      '--disable-default-apps'
     ]
   });
   
