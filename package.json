@@ -1,31 +1,42 @@
 {
   "name": "local-loop-scraper",
   "version": "1.0.0",
-  "description": "Local Loop - West Islip Event Scraper",
+  "description": "🏘️ Local Loop - West Islip Event Scraper for hyper-local newsletters",
   "main": "src/main.js",
   "type": "module",
   "scripts": {
     "start": "node src/main.js",
     "test": "node --test",
-    "dev": "node --watch src/main.js"
+    "dev": "node --watch src/main.js",
+    "local": "node src/main.js"
   },
   "dependencies": {
     "apify": "^3.1.10",
-    "playwright": "^1.40.0",
-    "crypto": "^1.0.1"
+    "playwright": "^1.40.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0"
   },
   "keywords": [
     "scraping",
-    "events",
+    "events", 
     "local-news",
-    "apify"
+    "newsletter",
+    "apify",
+    "west-islip",
+    "long-island"
   ],
   "author": "Local Loop",
   "license": "MIT",
   "engines": {
     "node": ">=18.0.0"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Aquadantheman/local-loop-scraper.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Aquadantheman/local-loop-scraper/issues"
+  },
+  "homepage": "https://github.com/Aquadantheman/local-loop-scraper#readme"
 }
