@@ -1,11 +1,11 @@
 # Use Apify's Puppeteer base image (has Chrome pre-installed)
 FROM apify/actor-node-puppeteer-chrome:18
 
-# Copy package.json and package-lock.json
-COPY package*.json ./
+# Copy package.json first
+COPY package.json ./
 
-# Install dependencies
-RUN npm ci --only=production --silent
+# Install dependencies (use npm install instead of npm ci for more flexibility)
+RUN npm install --omit=dev --silent
 
 # Copy source code
 COPY . ./
