@@ -3,7 +3,7 @@
   "name": "local-loop-scraper",
   "title": "Local Loop Event Scraper",
   "description": "🏘️ Scalable event scraping for hyper-local newsletters. Scrapes West Islip events from multiple sources and sends to Airtable for newsletter automation.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "meta": {
     "templateId": "javascript-node"
   },
