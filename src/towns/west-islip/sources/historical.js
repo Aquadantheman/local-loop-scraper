@@ -1,127 +1,131 @@
-// src/towns/west-islip/sources/historical.js - Fixed Historical Society scraper
-import { log } from 'apify';
-import { generateHash } from '../../../utils/hash-generator.js';
-import { isEventInFuture } from '../../../utils/date-parser.js';
-
-export async function scrapeHistoricalSociety(page) {
-  log.info('=== SCRAPING: West Islip Historical Society ===');
+// src/utils/date-parser.js - Fixed date parsing for Local Loop
+export function parseEventDate(dateString) {
+  if (!dateString) return new Date('2099-12-31'); // Put unparseable dates at the end
   
-  try {
-    await page.goto('https://www.westisliphistoricalsociety.org/index.php/events/eventsbyyear/2025/-', { 
-      waitUntil: 'domcontentloaded',
-      timeout: 30000 
-    });
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  
+  // Pattern 1: "August 14: 11:00am - 2:00pm" or "August 14"
+  const monthDayMatch = dateString.match(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+(\d{1,2})\b/i);
+  if (monthDayMatch) {
+    const monthName = monthDayMatch[1];
+    const day = parseInt(monthDayMatch[2]);
     
-    // Use setTimeout instead of page.waitForTimeout
-    await new Promise(resolve => setTimeout(resolve, 5000));
+    const monthMap = {
+      'jan': 0, 'feb': 1, 'mar': 2, 'apr': 3, 'may': 4, 'jun': 5,
+      'jul': 6, 'aug': 7, 'sep': 8, 'oct': 9, 'nov': 10, 'dec': 11
+    };
     
-    const events = await page.evaluate(() => {
-      const events = [];
+    const month = monthMap[monthName.toLowerCase().substring(0, 3)];
+    if (month !== undefined) {
+      let eventDate = new Date(currentYear, month, day);
       
-      const eventLinks = document.querySelectorAll('a[href*="eventdetail"]');
-      
-      eventLinks.forEach((link) => {
-        const linkText = link.textContent?.trim() || '';
-        const href = link.href || '';
-        
-        if (!linkText || linkText.length < 5) return;
-        
-        let contextText = '';
-        let currentElement = link.parentElement;
-        
-        for (let i = 0; i < 5; i++) {
-          if (currentElement) {
-            const text = currentElement.textContent || '';
-            if (text.length > contextText.length) {
-              contextText = text;
-            }
-            currentElement = currentElement.parentElement;
-          }
-        }
-        
-        let title = linkText.replace(/::.*$/, '').trim();
-        
-        let dateTime = '';
-        
-        const fullDateMatch = contextText.match(/(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),?\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+\d{4}\s+\d{1,2}:\d{2}(?:am|pm)\s*-\s*\d{1,2}:\d{2}(?:am|pm)/i);
-        if (fullDateMatch) {
-          dateTime = fullDateMatch[0];
-        } else {
-          const dateMatch = contextText.match(/(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),?\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+\d{4}/i);
-          if (dateMatch) {
-            dateTime = dateMatch[0];
-            
-            const timeMatch = contextText.match(/\d{1,2}:\d{2}(?:am|pm)\s*-\s*\d{1,2}:\d{2}(?:am|pm)/i);
-            if (timeMatch) {
-              dateTime += ` ${timeMatch[0]}`;
-            }
-          }
-        }
-        
-        let description = `${title} at the West Islip Historical Society.`;
-        
-        if (title.toLowerCase().includes('history center open')) {
-          description = 'Visit the West Islip History Center! Explore local historical exhibits, artifacts, and learn about the rich heritage of our community. Free and open to the public.';
-        } else if (title.toLowerCase().includes('general meeting')) {
-          description = 'West Islip Historical Society General Meeting. All community members are welcome to attend and learn about local history preservation efforts and upcoming events.';
-        } else if (title.toLowerCase().includes('lizzy')) {
-          description = 'Special community event celebrating Lizzy the Lion and West Islip local history. Family-friendly activities and historical presentations.';
-        }
-        
-        let category = 'historical society';
-        if (title.toLowerCase().includes('open')) {
-          category = 'historical society - open house';
-        } else if (title.toLowerCase().includes('meeting')) {
-          category = 'historical society - meeting';
-        } else if (title.toLowerCase().includes('lizzy')) {
-          category = 'historical society - special event';
-        }
-        
-        events.push({
-          title_raw: title,
-          description_raw: description,
-          start_raw: dateTime,
-          location_raw: 'West Islip Historical Society',
-          url_raw: href,
-          category_hint: category,
-          source: 'West Islip Historical Society',
-          fetched_at: new Date().toISOString()
-        });
-      });
-      
-      return events;
-    });
-    
-    const uniqueEvents = [];
-    const seenHashes = new Set();
-    let filteredOutPastEvents = 0;
-    
-    events.forEach(event => {
-      event.hash = generateHash(event.title_raw, event.start_raw, event.description_raw, event.source);
-      
-      if (isEventInFuture(event.start_raw)) {
-        if (!seenHashes.has(event.hash)) {
-          seenHashes.add(event.hash);
-          uniqueEvents.push(event);
-        }
-      } else {
-        filteredOutPastEvents++;
+      // If event is in the past, assume next year
+      if (eventDate < new Date(now.getFullYear(), now.getMonth(), now.getDate())) {
+        eventDate = new Date(currentYear + 1, month, day);
       }
-    });
-    
-    log.info(`Extracted ${uniqueEvents.length} unique future events from West Islip Historical Society`);
-    if (filteredOutPastEvents > 0) {
-      log.info(`Filtered out ${filteredOutPastEvents} past events from Historical Society`);
+      
+      // Extract time if available for more precise sorting
+      const timeMatch = dateString.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+      if (timeMatch) {
+        let hours = parseInt(timeMatch[1]);
+        const minutes = parseInt(timeMatch[2]);
+        const ampm = timeMatch[3].toLowerCase();
+        
+        if (ampm === 'pm' && hours !== 12) hours += 12;
+        if (ampm === 'am' && hours === 12) hours = 0;
+        
+        eventDate.setHours(hours, minutes);
+      }
+      
+      return eventDate;
     }
-    
-    if (uniqueEvents.length > 0) {
-      log.info(`Sample historical event: "${uniqueEvents[0].title_raw}" - Date: "${uniqueEvents[0].start_raw}"`);
-    }
-    
-    return uniqueEvents;
-    
-  } catch (error) {
-    log.error('Error scraping West Islip Historical Society:', error.message);
-    return [];
   }
+  
+  // Pattern 2: "Sep 11, 2025" or "September 21st 2025"
+  const fullDateMatch = dateString.match(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s*(\d{4})\b/i);
+  if (fullDateMatch) {
+    const monthName = fullDateMatch[1];
+    const day = parseInt(fullDateMatch[2]);
+    const year = parseInt(fullDateMatch[3]);
+    
+    const monthMap = {
+      'jan': 0, 'feb': 1, 'mar': 2, 'apr': 3, 'may': 4, 'jun': 5,
+      'jul': 6, 'aug': 7, 'sep': 8, 'oct': 9, 'nov': 10, 'dec': 11
+    };
+    
+    const month = monthMap[monthName.toLowerCase().substring(0, 3)];
+    if (month !== undefined) {
+      const eventDate = new Date(year, month, day);
+      
+      // Extract time if available
+      const timeMatch = dateString.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+      if (timeMatch) {
+        let hours = parseInt(timeMatch[1]);
+        const minutes = parseInt(timeMatch[2]);
+        const ampm = timeMatch[3].toLowerCase();
+        
+        if (ampm === 'pm' && hours !== 12) hours += 12;
+        if (ampm === 'am' && hours === 12) hours = 0;
+        
+        eventDate.setHours(hours, minutes);
+      }
+      
+      return eventDate;
+    }
+  }
+  
+  // Pattern 3: "Tuesday, February 04, 2025" - FIXED VERSION
+  const longDateMatch = dateString.match(/\b(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),?\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),?\s+(\d{4})\b/i);
+  if (longDateMatch) {
+    const monthName = longDateMatch[2];
+    const day = parseInt(longDateMatch[3]);
+    const year = parseInt(longDateMatch[4]);
+    
+    const monthMap = {
+      'january': 0, 'february': 1, 'march': 2, 'april': 3, 'may': 4, 'june': 5,
+      'july': 6, 'august': 7, 'september': 8, 'october': 9, 'november': 10, 'december': 11
+    };
+    
+    const month = monthMap[monthName.toLowerCase()];
+    if (month !== undefined) {
+      const eventDate = new Date(year, month, day);
+      
+      // Extract time if available
+      const timeMatch = dateString.match(/(\d{1,2}):(\d{2})\s*(?:am|pm)/i);
+      if (timeMatch) {
+        let hours = parseInt(timeMatch[1]);
+        const minutes = parseInt(timeMatch[2]);
+        const ampmMatch = dateString.match(/(am|pm)/i);
+        const ampm = ampmMatch ? ampmMatch[1].toLowerCase() : 'am';
+        
+        if (ampm === 'pm' && hours !== 12) hours += 12;
+        if (ampm === 'am' && hours === 12) hours = 0;
+        
+        eventDate.setHours(hours, minutes);
+      }
+      
+      return eventDate;
+    }
+  }
+  
+  // If we can't parse it, put it at the end
+  return new Date('2099-12-31');
+}
+
+export function isEventInFuture(dateString) {
+  if (!dateString) return true; // Include events with no date (better safe than sorry)
+  
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()); // Today at midnight
+  
+  const eventDate = parseEventDate(dateString);
+  const isInFuture = eventDate >= today;
+  
+  // Debug logging for date filtering - only show if event is past
+  if (!isInFuture) {
+    console.log(`Event date check: "${dateString}" -> ${eventDate.toDateString()} -> PAST (filtered out)`);
+  }
+  
+  return isInFuture;
 }
