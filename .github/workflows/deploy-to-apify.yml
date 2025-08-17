@@ -1,20 +1,73 @@
-name: 🚀 Deploy to Apify
+name: 🚀 Local Loop Complete Pipeline
 
 on:
   push:
     branches: [ main ]
+    paths:
+      - 'src/**'
+      - 'package.json'
+      - 'Dockerfile'
+      - 'actor.json'
+      - 'INPUT_SCHEMA.json'
+  
   pull_request:
     branches: [ main ]
+  
+  schedule:
+    # Daily scraping at 6:00 AM ET (11:00 AM UTC during DST, 10:00 AM UTC during EST)
+    - cron: '0 10 * * *'
+    # Friday newsletter prep at 10:00 AM ET (3:00 PM UTC during DST)
+    - cron: '0 15 * * 5'
+  
   workflow_dispatch:
     inputs:
+      max_events:
+        description: 'Maximum events to scrape'
+        required: false
+        default: '500'
+        type: choice
+        options:
+          - '100'
+          - '300'
+          - '500'
+          - '800'
+          - '1000'
+      debug_mode:
+        description: 'Enable debug mode (shows browser)'
+        required: false
+        default: false
+        type: boolean
+      towns:
+        description: 'Towns to scrape'
+        required: false
+        default: 'West Islip'
+        type: string
+      trigger_newsletter:
+        description: 'Trigger newsletter generation after scraping'
+        required: false
+        default: false
+        type: boolean
       run_after_deploy:
         description: 'Run scraper after deploy?'
         required: false
-        default: 'false'
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+env:
+  NODE_VERSION: '18'
+  APIFY_TIMEOUT: 1800
 
 jobs:
+  # Job 1: Deploy to Apify
   deploy:
     runs-on: ubuntu-latest
+    
+    outputs:
+      actor-id: ${{ steps.deploy-step.outputs.actor-id }}
+      deployment-url: ${{ steps.deploy-step.outputs.deployment-url }}
     
     steps:
     - name: 📥 Checkout repository
@@ -23,15 +76,17 @@ jobs:
     - name: 🔧 Setup Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '18'
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
     
     - name: 📦 Install dependencies
       run: npm install
     
     - name: 🔧 Install Apify CLI
-      run: npm install -g apify-cli
+      run: npm install -g apify-cli@latest
     
     - name: 🚀 Deploy to Apify
+      id: deploy-step
       env:
         APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
       run: |
@@ -42,31 +97,308 @@ jobs:
         apify push
         
         echo "✅ Deployment completed!"
+        
+        # Get actor info for outputs
+        ACTOR_INFO=$(apify info --json 2>/dev/null || echo '{}')
+        ACTOR_ID=$(echo $ACTOR_INFO | jq -r '.id // empty')
+        
+        if [ -n "$ACTOR_ID" ]; then
+          echo "actor-id=$ACTOR_ID" >> $GITHUB_OUTPUT
+          echo "deployment-url=https://console.apify.com/actors/$ACTOR_ID" >> $GITHUB_OUTPUT
+          echo "🎯 Actor ID: $ACTOR_ID"
+        else
+          echo "⚠️ Could not determine actor ID from apify info"
+          # Try to get it from the current directory name or package.json
+          ACTOR_NAME=$(basename $(pwd) | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g')
+          echo "📝 Using actor name: $ACTOR_NAME"
+          echo "actor-id=$ACTOR_NAME" >> $GITHUB_OUTPUT
+          echo "deployment-url=https://console.apify.com/actors" >> $GITHUB_OUTPUT
+        fi
+
+  # Job 2: Run Scraper
+  scrape:
+    runs-on: ubuntu-latest
+    needs: [deploy]
+    if: |
+      always() && 
+      needs.deploy.result == 'success' && 
+      (github.event_name == 'schedule' || 
+       github.event_name == 'workflow_dispatch' ||
+       github.event.inputs.run_after_deploy == 'true' ||
+       (github.event_name == 'push' && github.ref == 'refs/heads/main'))
     
-    - name: 🧪 Test run (optional)
-      if: github.ref == 'refs/heads/main' && (github.event.inputs.run_after_deploy == 'true' || github.event_name == 'workflow_dispatch')
+    outputs:
+      events-found: ${{ steps.scrape-step.outputs.events-found }}
+      scrape-status: ${{ steps.scrape-step.outputs.scrape-status }}
+      dataset-url: ${{ steps.scrape-step.outputs.dataset-url }}
+      run-url: ${{ steps.scrape-step.outputs.run-url }}
+    
+    steps:
+    - name: 🔧 Install Apify CLI
+      run: npm install -g apify-cli@latest
+      
+    - name: 🏃 Run Local Loop scraper
+      id: scrape-step
       env:
         APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
       run: |
-        echo "🧪 Running test scrape..."
+        apify login --token $APIFY_TOKEN
         
-        # Get the actor ID from the current directory
-        ACTOR_ID=$(apify info --json | jq -r '.id // empty')
-        
-        if [ -n "$ACTOR_ID" ]; then
-          echo "🎯 Testing actor: $ACTOR_ID"
-          apify call $ACTOR_ID --timeout 600 --input '{"debug": false, "maxEvents": 50}'
-          echo "✅ Test run completed!"
+        # Determine run type and configure input
+        RUN_TYPE="unknown"
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          RUN_TYPE="manual"
+          MAX_EVENTS="${{ github.event.inputs.max_events }}"
+          DEBUG_MODE="${{ github.event.inputs.debug_mode }}"
+          TOWNS="${{ github.event.inputs.towns }}"
+        elif [ "${{ github.event.schedule }}" = "0 15 * * 5" ]; then
+          RUN_TYPE="newsletter-prep"
+          MAX_EVENTS="800"
+          DEBUG_MODE="false"
+          TOWNS="West Islip"
+        elif [ "${{ github.event.schedule }}" = "0 10 * * *" ]; then
+          RUN_TYPE="daily"
+          MAX_EVENTS="500"
+          DEBUG_MODE="false"
+          TOWNS="West Islip"
         else
-          echo "⚠️ Could not determine actor ID, skipping test run"
+          RUN_TYPE="push-test"
+          MAX_EVENTS="200"
+          DEBUG_MODE="false"
+          TOWNS="West Islip"
+        fi
+        
+        echo "🎯 Run type: $RUN_TYPE"
+        echo "📊 Max events: $MAX_EVENTS"
+        echo "🏘️ Towns: $TOWNS"
+        
+        # Prepare input JSON
+        INPUT_JSON=$(cat << EOF
+        {
+          "debug": $DEBUG_MODE,
+          "maxEvents": $MAX_EVENTS,
+          "towns": ["$TOWNS"],
+          "futureOnly": true,
+          "source": "github-$RUN_TYPE"
+        }
+        EOF
+        )
+        
+        echo "📝 Input: $INPUT_JSON"
+        
+        # Get actor identifier
+        ACTOR_ID="${{ needs.deploy.outputs.actor-id }}"
+        
+        if [ -z "$ACTOR_ID" ] || [ "$ACTOR_ID" = "null" ]; then
+          echo "❌ No valid actor ID available"
+          exit 1
+        fi
+        
+        echo "🚀 Starting scraper run..."
+        echo "🎭 Actor: $ACTOR_ID"
+        
+        # Run the actor and capture the run ID
+        RUN_RESULT=$(apify call $ACTOR_ID \
+          --timeout ${{ env.APIFY_TIMEOUT }} \
+          --input "$INPUT_JSON" \
+          --output-dataset 2>&1)
+        
+        echo "📊 Scraper output:"
+        echo "$RUN_RESULT"
+        
+        # Extract metrics from the output
+        EVENTS_COUNT="0"
+        if echo "$RUN_RESULT" | grep -q "events found\|events collected\|total events"; then
+          EVENTS_COUNT=$(echo "$RUN_RESULT" | grep -E "(events found|events collected|total events)" | grep -o "[0-9]\+" | head -1)
+        fi
+        
+        # Try to extract run ID and dataset ID
+        RUN_ID=$(echo "$RUN_RESULT" | grep -o "run [a-zA-Z0-9]\{17\}" | cut -d' ' -f2 | head -1)
+        DATASET_ID=$(echo "$RUN_RESULT" | grep -o "dataset [a-zA-Z0-9]\{17\}" | cut -d' ' -f2 | head -1)
+        
+        # Generate URLs
+        if [ -n "$RUN_ID" ]; then
+          RUN_URL="https://console.apify.com/actors/runs/$RUN_ID"
+        else
+          RUN_URL="https://console.apify.com/actors/$ACTOR_ID#/runs"
+        fi
+        
+        if [ -n "$DATASET_ID" ]; then
+          DATASET_URL="https://console.apify.com/storage/datasets/$DATASET_ID"
+        else
+          DATASET_URL="https://console.apify.com/storage/datasets"
+        fi
+        
+        # Set outputs
+        echo "events-found=${EVENTS_COUNT:-0}" >> $GITHUB_OUTPUT
+        echo "scrape-status=success" >> $GITHUB_OUTPUT
+        echo "dataset-url=$DATASET_URL" >> $GITHUB_OUTPUT
+        echo "run-url=$RUN_URL" >> $GITHUB_OUTPUT
+        
+        echo "✅ Scraping completed successfully!"
+        echo "📈 Events found: ${EVENTS_COUNT:-0}"
+        echo "🔗 Run URL: $RUN_URL"
+        echo "📊 Dataset URL: $DATASET_URL"
+
+  # Job 3: Trigger Newsletter (Fridays or manual)
+  newsletter:
+    runs-on: ubuntu-latest
+    needs: [scrape]
+    if: |
+      always() && 
+      needs.scrape.result == 'success' && 
+      (github.event.schedule == '0 15 * * 5' || 
+       github.event.inputs.trigger_newsletter == 'true')
+    
+    steps:
+    - name: 🔔 Trigger Make.com newsletter generation
+      env:
+        MAKECOM_WEBHOOK_URL: ${{ secrets.MAKECOM_WEBHOOK_URL }}
+      run: |
+        if [ -z "$MAKECOM_WEBHOOK_URL" ]; then
+          echo "⚠️ MAKECOM_WEBHOOK_URL not configured"
+          echo "💡 Add this secret to enable newsletter automation"
+          echo "📧 Newsletter generation skipped"
+          exit 0
+        fi
+        
+        echo "📧 Triggering newsletter generation via Make.com..."
+        
+        RESPONSE=$(curl -s -w "HTTPSTATUS:%{http_code}" -X POST "$MAKECOM_WEBHOOK_URL" \
+          -H "Content-Type: application/json" \
+          -d "{
+            \"source\": \"github-action\",
+            \"trigger\": \"newsletter-generation\", 
+            \"events_scraped\": ${{ needs.scrape.outputs.events-found }},
+            \"scrape_date\": \"$(date -u +%Y-%m-%d)\",
+            \"issue_week\": \"$(date -u -d 'next friday' +%Y-%m-%d)\",
+            \"run_url\": \"${{ needs.scrape.outputs.run-url }}\",
+            \"dataset_url\": \"${{ needs.scrape.outputs.dataset-url }}\"
+          }")
+        
+        HTTP_STATUS=$(echo $RESPONSE | tr -d '\n' | sed -e 's/.*HTTPSTATUS://')
+        BODY=$(echo $RESPONSE | sed -e 's/HTTPSTATUS\:.*//g')
+        
+        if [ "$HTTP_STATUS" -eq 200 ] || [ "$HTTP_STATUS" -eq 201 ]; then
+          echo "✅ Newsletter generation triggered successfully"
+          echo "📊 Response: $BODY"
+        else
+          echo "❌ Failed to trigger newsletter generation"
+          echo "🔍 HTTP Status: $HTTP_STATUS"
+          echo "📄 Response: $BODY"
+          exit 1
+        fi
+
+  # Job 4: Report Results
+  report:
+    runs-on: ubuntu-latest
+    needs: [deploy, scrape, newsletter]
+    if: always()
+    
+    steps:
+    - name: 📊 Generate Pipeline Summary
+      run: |
+        echo "## 🏘️ Local Loop Pipeline Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📋 Run Details" >> $GITHUB_STEP_SUMMARY
+        echo "- **Trigger:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **Time:** $(date -u)" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        echo "### 🎯 Results" >> $GITHUB_STEP_SUMMARY
+        
+        # Deployment status
+        if [ "${{ needs.deploy.result }}" = "success" ]; then
+          echo "✅ **Deployment:** Success" >> $GITHUB_STEP_SUMMARY
+          if [ -n "${{ needs.deploy.outputs.deployment-url }}" ]; then
+            echo "   - [View Actor](${{ needs.deploy.outputs.deployment-url }})" >> $GITHUB_STEP_SUMMARY
+          fi
+        else
+          echo "❌ **Deployment:** Failed" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        # Scraping status
+        if [ "${{ needs.scrape.result }}" = "success" ]; then
+          echo "✅ **Scraping:** Success" >> $GITHUB_STEP_SUMMARY
+          echo "   - **Events Found:** ${{ needs.scrape.outputs.events-found }}" >> $GITHUB_STEP_SUMMARY
+          if [ -n "${{ needs.scrape.outputs.run-url }}" ]; then
+            echo "   - [View Run](${{ needs.scrape.outputs.run-url }})" >> $GITHUB_STEP_SUMMARY
+          fi
+          if [ -n "${{ needs.scrape.outputs.dataset-url }}" ]; then
+            echo "   - [View Dataset](${{ needs.scrape.outputs.dataset-url }})" >> $GITHUB_STEP_SUMMARY
+          fi
+        elif [ "${{ needs.scrape.result }}" = "skipped" ]; then
+          echo "⏭️ **Scraping:** Skipped" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ **Scraping:** Failed" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        # Newsletter status
+        if [ "${{ needs.newsletter.result }}" = "success" ]; then
+          echo "✅ **Newsletter:** Triggered" >> $GITHUB_STEP_SUMMARY
+        elif [ "${{ needs.newsletter.result }}" = "skipped" ]; then
+          echo "⏭️ **Newsletter:** Skipped" >> $GITHUB_STEP_SUMMARY
+        elif [ "${{ needs.newsletter.result }}" = "failure" ]; then
+          echo "❌ **Newsletter:** Failed" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🚀 Next Steps" >> $GITHUB_STEP_SUMMARY
+        if [ "${{ github.event_name }}" = "schedule" ] && [ "${{ github.event.schedule }}" = "0 15 * * 5" ]; then
+          echo "- Newsletter should be generating via Make.com" >> $GITHUB_STEP_SUMMARY
+          echo "- Check your email platform for the draft" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "- Data is ready in Airtable for processing" >> $GITHUB_STEP_SUMMARY
+          echo "- Next newsletter generation: Friday 10 AM ET" >> $GITHUB_STEP_SUMMARY
         fi
     
-    - name: 📊 Deployment Summary
-      if: always()
+    - name: 🔔 Send notifications on failure
+      if: failure() && github.ref == 'refs/heads/main'
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
       run: |
-        echo "## 🏘️ Local Loop Deployment Summary" >> $GITHUB_STEP_SUMMARY
-        echo "- **Repository**: ${{ github.repository }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Branch**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Triggered by**: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Status**: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+        # Slack notification
+        if [ -n "$SLACK_WEBHOOK_URL" ]; then
+          echo "📱 Sending Slack notification..."
+          curl -X POST "$SLACK_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"text\": \"🚨 Local Loop Pipeline Failed\",
+              \"blocks\": [
+                {
+                  \"type\": \"section\",
+                  \"text\": {
+                    \"type\": \"mrkdwn\",
+                    \"text\": \"*Local Loop Pipeline Failed* 🚨\\n\\n*Repository:* ${{ github.repository }}\\n*Branch:* ${{ github.ref_name }}\\n*Trigger:* ${{ github.event_name }}\\n*Time:* $(date -u)\\n\\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Run Details>\"
+                  }
+                }
+              ]
+            }" || echo "Failed to send Slack notification"
+        fi
+        
+        echo "📧 For email notifications, configure SENDGRID_API_KEY and NOTIFICATION_EMAIL secrets"
+    
+    - name: 🎉 Send success notification (newsletter days)
+      if: success() && needs.newsletter.result == 'success'
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      run: |
+        if [ -n "$SLACK_WEBHOOK_URL" ]; then
+          echo "📱 Sending success notification..."
+          curl -X POST "$SLACK_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"text\": \"📧 Local Loop Newsletter Generated!\",
+              \"blocks\": [
+                {
+                  \"type\": \"section\",
+                  \"text\": {
+                    \"type\": \"mrkdwn\",
+                    \"text\": \"*Local Loop Newsletter Generated!* 📧\\n\\n*Events Found:* ${{ needs.scrape.outputs.events-found }}\\n*Time:* $(date -u)\\n\\nCheck your email platform for the newsletter draft.\"
+                  }
+                }
+              ]
+            }" || echo "Failed to send Slack notification"
+        fi
