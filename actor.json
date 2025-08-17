@@ -1,0 +1,40 @@
+{
+  "actorSpecification": 1,
+  "name": "local-loop-scraper",
+  "title": "Local Loop Event Scraper",
+  "description": "🏘️ Scalable event scraping for hyper-local newsletters. Scrapes West Islip events from multiple sources and sends to Airtable for newsletter automation.",
+  "version": "1.0.0",
+  "meta": {
+    "templateId": "javascript-node"
+  },
+  "input": "./INPUT_SCHEMA.json",
+  "dockerfile": "./Dockerfile",
+  "readme": "./README.md",
+  "categories": ["ENTERTAINMENT"],
+  "defaultRunOptions": {
+    "build": "latest",
+    "timeoutSecs": 1800,
+    "memoryMbytes": 2048
+  },
+  "storages": {
+    "dataset": {
+      "actorSpecification": 1,
+      "title": "Scraped Events",
+      "description": "All scraped events with metadata",
+      "views": {
+        "overview": {
+          "title": "Overview",
+          "transformation": {
+            "fields": [
+              "title_raw",
+              "start_raw", 
+              "location_raw",
+              "source",
+              "category_hint"
+            ]
+          }
+        }
+      }
+    }
+  }
+}
