@@ -1,4 +1,4 @@
-// src/main.js - Local Loop Event Scraper (Quick Puppeteer Fix)
+// src/main.js - Local Loop Event Scraper (Final Fix)
 import { Actor, log } from 'apify';
 import { scrapeWestIslip } from './towns/west-islip/index.js';
 import { sendToAirtable, verifyAirtableSetup } from './utils/airtable.js';
@@ -22,20 +22,19 @@ await Actor.main(async () => {
     airtableReady = await verifyAirtableSetup(process.env.AIRTABLE_TOKEN, process.env.AIRTABLE_BASE_ID);
   }
 
-  // Initialize browser using Apify's built-in Puppeteer (WORKS WITHOUT PLAYWRIGHT!)
+  // Initialize browser using correct Apify method
   log.info('🌐 Launching browser with Apify Puppeteer...');
   const browser = await Actor.launchPuppeteer({
     headless: !input.debug,
-    // Remove useChrome: true - use default Chromium that comes with Apify
-    launchOptions: {
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-extensions',
-        '--disable-gpu'
-      ]
-    }
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-extensions',
+      '--disable-gpu',
+      '--no-first-run',
+      '--disable-default-apps'
+    ]
   });
   
   const page = await browser.newPage();
