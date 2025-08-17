@@ -1,22 +1,17 @@
 {
   "name": "local-loop-scraper",
-  "version": "1.0.15",
-  "description": "🏘️ Local Loop - West Islip Event Scraper for hyper-local newsletters",
+  "version": "1.0.16",
+  "description": "🏘️ Local Loop - Optimized West Islip Event Scraper",
   "main": "src/main.js",
   "type": "module",
   "scripts": {
-    "start": "node src/main.js",
-    "test": "node --test",
-    "dev": "node --watch src/main.js",
-    "local": "node src/main.js"
+    "start": "node --max-old-space-size=1536 src/main.js",
+    "dev": "node --watch --max-old-space-size=1536 src/main.js",
+    "local": "node --max-old-space-size=1536 src/main.js"
   },
   "dependencies": {
     "apify": "^3.1.10",
-    "crawlee": "^3.14.0",
-    "puppeteer": "^21.0.0"
-  },
-  "devDependencies": {
-    "@types/node": "^20.0.0"
+    "playwright": "^1.40.0"
   },
   "keywords": [
     "scraping",
@@ -25,7 +20,8 @@
     "newsletter",
     "apify",
     "west-islip",
-    "long-island"
+    "long-island",
+    "optimized"
   ],
   "author": "Local Loop",
   "license": "MIT",
