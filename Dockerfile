@@ -1,16 +1,17 @@
-# Use Apify's base image with Playwright
-FROM apify/actor-node-playwright-chrome:latest
+# Use the official Apify SDK image with Node.js 18
+FROM apify/actor-node:18
 
-# Copy package files
+# Copy package.json and package-lock.json first for better caching
 COPY package*.json ./
 
-# Install dependencies and browsers
-RUN npm ci --omit=dev \
-    && npx playwright install chromium \
-    && npx playwright install-deps
+# Install dependencies
+RUN npm ci --only=production --silent
 
-# Copy source code
+# Copy the entire source code
 COPY . ./
 
-# Start command
+# Ensure proper permissions
+RUN chmod +x ./src/main.js
+
+# The Apify platform automatically runs: npm start
 CMD npm start
