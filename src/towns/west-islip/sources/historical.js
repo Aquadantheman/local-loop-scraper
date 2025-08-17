@@ -1,4 +1,4 @@
-// src/towns/west-islip/sources/historical.js - West Islip Historical Society scraper
+// src/towns/west-islip/sources/historical.js - Fixed Historical Society scraper
 import { log } from 'apify';
 import { generateHash } from '../../../utils/hash-generator.js';
 import { isEventInFuture } from '../../../utils/date-parser.js';
@@ -12,14 +12,15 @@ export async function scrapeHistoricalSociety(page) {
       timeout: 30000 
     });
     
-    await page.waitForTimeout(5000);
+    // Use setTimeout instead of page.waitForTimeout
+    await new Promise(resolve => setTimeout(resolve, 5000));
     
     const events = await page.evaluate(() => {
       const events = [];
       
       const eventLinks = document.querySelectorAll('a[href*="eventdetail"]');
       
-      eventLinks.forEach((link, index) => {
+      eventLinks.forEach((link) => {
         const linkText = link.textContent?.trim() || '';
         const href = link.href || '';
         
