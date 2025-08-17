@@ -27,8 +27,8 @@ await Actor.main(async () => {
   log.info('🌐 Launching browser with Crawlee...');
   
   const browser = await launchPuppeteer({
-    headless: !input.debug,
     launchOptions: {
+      headless: !input.debug,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
