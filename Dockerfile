@@ -7,6 +7,9 @@ COPY package*.json ./
 # Install dependencies
 RUN npm ci --only=production --silent
 
+# Install Playwright browsers (this is the missing piece!)
+RUN npx playwright install --with-deps chromium
+
 # Copy the entire source code
 COPY . ./
 
