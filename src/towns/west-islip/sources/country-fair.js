@@ -1,4 +1,4 @@
-// src/towns/west-islip/sources/country-fair.js - West Islip Country Fair scraper
+// src/towns/west-islip/sources/country-fair.js - Fixed Country Fair scraper
 import { log } from 'apify';
 import { generateHash } from '../../../utils/hash-generator.js';
 import { isEventInFuture } from '../../../utils/date-parser.js';
@@ -12,13 +12,15 @@ export async function scrapeCountryFair(page) {
       timeout: 30000 
     });
     
-    await page.waitForTimeout(5000);
+    // Use setTimeout instead of page.waitForTimeout
+    await new Promise(resolve => setTimeout(resolve, 5000));
     
     const events = await page.evaluate(() => {
       const events = [];
       
       const bodyText = document.body.textContent || '';
       
+      // Look for September dates (typical country fair time)
       const dateMatches = bodyText.match(/(?:Sept|September)\s+\d{1,2}(?:st|nd|rd|th)?\s*,?\s*\d{4}/gi);
       const timeMatches = bodyText.match(/\d{1,2}AM-\d{1,2}PM/gi);
       
@@ -30,7 +32,7 @@ export async function scrapeCountryFair(page) {
       const contentSections = [
         'Live music on the stage',
         'Childrens area with Bounce, Slide, Magician, Face Painting',
-        'Italian, Polish, Greek, Crepes, Philly Cheese Steaks, Hot Dogs, Hamburgers, Roasted Corn, Funnel Cakes, Ices, Smoothies, Fried Oreo\'s'
+        'Italian, Polish, Greek, Crepes, Philly Cheese Steaks, Hot Dogs, Hamburgers, Roasted Corn, Funnel Cakes, Ices, Smoothies, Fried Oreos'
       ];
       
       description = `Annual West Islip Country Fair featuring ${contentSections.join(', ')} and more! Family-friendly community event with food, entertainment, and activities for all ages.`;
