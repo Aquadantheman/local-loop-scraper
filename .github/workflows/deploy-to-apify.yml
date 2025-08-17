@@ -29,7 +29,7 @@ jobs:
       run: npm install
     
     - name: 🔧 Install Apify CLI
-      run: npm install -g @apify/cli
+      run: npm install -g apify-cli
     
     - name: 🚀 Deploy to Apify
       env:
