@@ -1,6 +1,6 @@
-// src/main.js - Local Loop Event Scraper (Use System Browser)
+// src/main.js - Local Loop Event Scraper (Use Apify's browser method)
 import { Actor, log } from 'apify';
-import puppeteer from 'puppeteer-core';
+import { launchPuppeteer } from 'crawlee';
 import { scrapeWestIslip } from './towns/west-islip/index.js';
 import { sendToAirtable, verifyAirtableSetup } from './utils/airtable.js';
 import { parseEventDate } from './utils/date-parser.js';
@@ -23,23 +23,21 @@ await Actor.main(async () => {
     airtableReady = await verifyAirtableSetup(process.env.AIRTABLE_TOKEN, process.env.AIRTABLE_BASE_ID);
   }
 
-  // Initialize browser using system Chrome that comes with Apify
-  log.info('🌐 Launching browser with system Chrome...');
+  // Initialize browser using Crawlee's launchPuppeteer (part of Apify SDK)
+  log.info('🌐 Launching browser with Crawlee...');
   
-  const browser = await puppeteer.launch({
-    headless: input.debug ? false : "new", // Use new headless mode
-    executablePath: '/usr/bin/google-chrome-stable', // Use system Chrome
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-extensions',
-      '--disable-gpu',
-      '--disable-web-security',
-      '--disable-features=VizDisplayCompositor',
-      '--no-first-run',
-      '--disable-default-apps'
-    ]
+  const browser = await launchPuppeteer({
+    headless: !input.debug,
+    launchOptions: {
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-extensions',
+        '--disable-gpu',
+        '--no-first-run'
+      ]
+    }
   });
   
   const page = await browser.newPage();
