@@ -1,6 +1,6 @@
-// src/utils/date-parser.js - Date parsing utilities for Local Loop
+// src/utils/date-parser.js - Final fixed version
 export function parseEventDate(dateString) {
-  if (!dateString) return new Date('2099-12-31'); // Put unparseable dates at the end
+  if (!dateString) return new Date('2099-12-31');
   
   const now = new Date();
   const currentYear = now.getFullYear();
@@ -25,7 +25,6 @@ export function parseEventDate(dateString) {
         eventDate = new Date(currentYear + 1, month, day);
       }
       
-      // Extract time if available for more precise sorting
       const timeMatch = dateString.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
       if (timeMatch) {
         let hours = parseInt(timeMatch[1]);
@@ -58,7 +57,6 @@ export function parseEventDate(dateString) {
     if (month !== undefined) {
       const eventDate = new Date(year, month, day);
       
-      // Extract time if available
       const timeMatch = dateString.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
       if (timeMatch) {
         let hours = parseInt(timeMatch[1]);
@@ -75,7 +73,7 @@ export function parseEventDate(dateString) {
     }
   }
   
-  // Pattern 3: "Tuesday, February 04, 2025"
+  // Pattern 3: "Tuesday, February 04, 2025" - CORRECTED
   const longDateMatch = dateString.match(/\b(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),?\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),?\s+(\d{4})\b/i);
   if (longDateMatch) {
     const monthName = longDateMatch[2];
@@ -89,14 +87,15 @@ export function parseEventDate(dateString) {
     
     const month = monthMap[monthName.toLowerCase()];
     if (month !== undefined) {
+      // Use the ACTUAL YEAR from the string, don't modify it
       const eventDate = new Date(year, month, day);
       
-      // Extract time if available
-      const timeMatch = dateString.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+      const timeMatch = dateString.match(/(\d{1,2}):(\d{2})\s*(?:am|pm)/i);
       if (timeMatch) {
         let hours = parseInt(timeMatch[1]);
         const minutes = parseInt(timeMatch[2]);
-        const ampm = timeMatch[3].toLowerCase();
+        const ampmMatch = dateString.match(/(am|pm)/i);
+        const ampm = ampmMatch ? ampmMatch[1].toLowerCase() : 'am';
         
         if (ampm === 'pm' && hours !== 12) hours += 12;
         if (ampm === 'am' && hours === 12) hours = 0;
@@ -108,21 +107,15 @@ export function parseEventDate(dateString) {
     }
   }
   
-  // If we can't parse it, put it at the end
   return new Date('2099-12-31');
 }
 
 export function isEventInFuture(dateString) {
-  if (!dateString) return true; // Include events with no date (better safe than sorry)
+  if (!dateString) return true;
   
   const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()); // Today at midnight
-  
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const eventDate = parseEventDate(dateString);
-  const isInFuture = eventDate >= today;
   
-  // Debug logging for date filtering
-  console.log(`Event date check: "${dateString}" -> ${eventDate.toDateString()} -> ${isInFuture ? 'FUTURE' : 'PAST'}`);
-  
-  return isInFuture;
+  return eventDate >= today;
 }
