@@ -1,6 +1,6 @@
 {
   "name": "local-loop-scraper",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "description": "🏘️ Local Loop - West Islip Event Scraper for hyper-local newsletters",
   "main": "src/main.js",
   "type": "module",
