@@ -1,6 +1,5 @@
-// src/main.js - Local Loop Event Scraper (Modular Architecture)
+// src/main.js - Local Loop Event Scraper (Fixed for Apify)
 import { Actor, log } from 'apify';
-import { chromium } from 'playwright';
 import { scrapeWestIslip } from './towns/west-islip/index.js';
 import { sendToAirtable, verifyAirtableSetup } from './utils/airtable.js';
 import { parseEventDate } from './utils/date-parser.js';
@@ -13,7 +12,7 @@ await Actor.main(async () => {
   const hasAirtableBase = !!process.env.AIRTABLE_BASE_ID;
   
   log.info('🚀 Starting Local Loop Multi-Town Event Scraper');
-  log.info(`🏘️  Architecture: Modular (ready for expansion)`);
+  log.info(`🏘️ Architecture: Modular (ready for expansion)`);
   log.info(`🐛 Debug mode: ${input.debug ? 'ON' : 'OFF'}`);
   log.info(`📊 Airtable integration: ${hasAirtableToken && hasAirtableBase ? 'ENABLED' : 'DISABLED'}`);
   
@@ -23,11 +22,14 @@ await Actor.main(async () => {
     airtableReady = await verifyAirtableSetup(process.env.AIRTABLE_TOKEN, process.env.AIRTABLE_BASE_ID);
   }
 
-  // Initialize browser
-  const browser = await chromium.launch({ headless: !input.debug });
-  const page = await browser.newPage({
+  // Initialize browser using Apify's launcher (more reliable in Apify environment)
+  const browser = await Actor.launchPuppeteer({
+    headless: !input.debug,
+    useChrome: true,  // Use Chrome instead of Chromium for better compatibility
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
   });
+  
+  const page = await browser.newPage();
   
   let allEvents = [];
   const scrapingResults = {};
@@ -56,12 +58,12 @@ await Actor.main(async () => {
     // Scrape each enabled town
     for (const [index, town] of towns.entries()) {
       if (!town.enabled) {
-        log.info(`⏭️  Skipping ${town.name} (disabled)`);
+        log.info(`⭐️ Skipping ${town.name} (disabled)`);
         continue;
       }
       
       try {
-        log.info(`\n🏘️  Scraping ${town.name} (${index + 1}/${towns.filter(t => t.enabled).length})`);
+        log.info(`\n🏘️ Scraping ${town.name} (${index + 1}/${towns.filter(t => t.enabled).length})`);
         
         const townEvents = await town.scraper(page);
         allEvents = allEvents.concat(townEvents);
@@ -92,7 +94,7 @@ await Actor.main(async () => {
     await handleCriticalError(error, allEvents, scrapingResults);
   } finally {
     await browser.close();
-    log.info('🔚 Browser closed - scraping complete');
+    log.info('📚 Browser closed - scraping complete');
   }
 });
 
@@ -116,7 +118,7 @@ async function processResults(allEvents, scrapingResults, airtableReady) {
       log.info(`${status} ${town}: ${result.count} events`);
       if (result.sources) {
         Object.entries(result.sources).forEach(([source, count]) => {
-          log.info(`    📍 ${source}: ${count} events`);
+          log.info(`    🔍 ${source}: ${count} events`);
         });
       }
     } else {
@@ -125,7 +127,7 @@ async function processResults(allEvents, scrapingResults, airtableReady) {
   });
   
   if (allEvents.length === 0) {
-    log.warning('⚠️  No events found to process');
+    log.warning('⚠️ No events found to process');
     return;
   }
   
@@ -149,7 +151,7 @@ async function processResults(allEvents, scrapingResults, airtableReady) {
       minute: eventDate.getMinutes() ? 'numeric' : undefined
     });
     log.info(`${String(i + 1).padStart(2)}. ${dateStr} - ${event.title_raw}`);
-    log.info(`    📍 ${event.location_raw} (${event.source})`);
+    log.info(`    🏟️ ${event.location_raw} (${event.source})`);
   });
   
   // Save to Apify dataset
@@ -158,10 +160,11 @@ async function processResults(allEvents, scrapingResults, airtableReady) {
   
   // Airtable integration
   if (airtableReady) {
-    log.info('\n🔄 Sending events to Airtable...');
-    await sendToAirtable(allEvents);
+    log.info('\n📄 Sending events to Airtable...');
+    const airtableResult = await sendToAirtable(allEvents);
+    log.info(`📊 Airtable result: ${airtableResult.sent} sent, ${airtableResult.skipped} skipped`);
   } else {
-    log.warning('⚠️  Skipping Airtable integration - setup verification failed');
+    log.warning('⚠️ Skipping Airtable integration - setup verification failed');
   }
   
   // Store run statistics
