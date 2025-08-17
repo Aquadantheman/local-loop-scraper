@@ -1,0 +1,80 @@
+{
+  "title": "Local Loop Scraper Configuration",
+  "type": "object",
+  "schemaVersion": 1,
+  "properties": {
+    "debug": {
+      "title": "Debug Mode",
+      "type": "boolean",
+      "description": "Show browser window and enable verbose logging for troubleshooting",
+      "default": false,
+      "editor": "checkbox"
+    },
+    "maxEvents": {
+      "title": "Maximum Events",
+      "type": "integer",
+      "description": "Limit the total number of events to scrape (helps with rate limiting)",
+      "default": 500,
+      "minimum": 1,
+      "maximum": 2000
+    },
+    "towns": {
+      "title": "Towns to Scrape",
+      "type": "array",
+      "description": "Select which towns to scrape events from",
+      "default": ["West Islip"],
+      "items": {
+        "type": "string",
+        "enum": ["West Islip"]
+      },
+      "editor": "select",
+      "uniqueItems": true
+    },
+    "futureOnly": {
+      "title": "Future Events Only",
+      "type": "boolean", 
+      "description": "Only scrape events that haven't already passed",
+      "default": true,
+      "editor": "checkbox"
+    },
+    "sources": {
+      "title": "Event Sources",
+      "type": "object",
+      "description": "Enable/disable specific event sources",
+      "editor": "object",
+      "properties": {
+        "library": {
+          "title": "West Islip Public Library",
+          "type": "boolean",
+          "default": true,
+          "description": "Library events and programs"
+        },
+        "chamber": {
+          "title": "Chamber of Commerce", 
+          "type": "boolean",
+          "default": true,
+          "description": "Business and community events"
+        },
+        "fire_dept": {
+          "title": "Fire Department",
+          "type": "boolean", 
+          "default": true,
+          "description": "Public safety and community events"
+        },
+        "historical": {
+          "title": "Historical Society",
+          "type": "boolean",
+          "default": true,
+          "description": "Historical and cultural events"
+        },
+        "country_fair": {
+          "title": "Country Fair",
+          "type": "boolean",
+          "default": true,
+          "description": "Annual country fair events"
+        }
+      }
+    }
+  },
+  "required": []
+}
