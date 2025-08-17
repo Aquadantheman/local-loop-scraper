@@ -1,1 +1,73 @@
+name: 🚀 Deploy to Apify
 
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      run_after_deploy:
+        description: 'Run scraper after deploy?'
+        required: false
+        default: 'false'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: 🔧 Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+    
+    - name: 📦 Install dependencies
+      run: npm ci
+    
+    - name: 🔧 Install Apify CLI
+      run: npm install -g @apify/cli
+    
+    - name: 🚀 Deploy to Apify
+      env:
+        APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+      run: |
+        echo "🔐 Logging into Apify..."
+        apify login --token $APIFY_TOKEN
+        
+        echo "🏗️ Pushing actor to Apify..."
+        apify push
+        
+        echo "✅ Deployment completed!"
+    
+    - name: 🧪 Test run (optional)
+      if: github.ref == 'refs/heads/main' && (github.event.inputs.run_after_deploy == 'true' || github.event_name == 'workflow_dispatch')
+      env:
+        APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+      run: |
+        echo "🧪 Running test scrape..."
+        
+        # Get the actor ID from the current directory
+        ACTOR_ID=$(apify info --json | jq -r '.id // empty')
+        
+        if [ -n "$ACTOR_ID" ]; then
+          echo "🎯 Testing actor: $ACTOR_ID"
+          apify call $ACTOR_ID --timeout 600 --input '{"debug": false, "maxEvents": 50}'
+          echo "✅ Test run completed!"
+        else
+          echo "⚠️ Could not determine actor ID, skipping test run"
+        fi
+    
+    - name: 📊 Deployment Summary
+      if: always()
+      run: |
+        echo "## 🏘️ Local Loop Deployment Summary" >> $GITHUB_STEP_SUMMARY
+        echo "- **Repository**: ${{ github.repository }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Branch**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Triggered by**: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Status**: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
