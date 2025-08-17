@@ -1,4 +1,4 @@
-// src/towns/west-islip/sources/library.js - West Islip Public Library scraper
+// src/towns/west-islip/sources/library.js - West Islip Public Library scraper (Fixed)
 import { log } from 'apify';
 import { generateHash } from '../../../utils/hash-generator.js';
 import { isEventInFuture } from '../../../utils/date-parser.js';
@@ -8,11 +8,19 @@ export async function scrapeLibrary(page) {
   
   try {
     await page.goto('https://westisliplibrary.libnet.info/events?r=days&n=60', { 
-      waitUntil: 'networkidle',
+      waitUntil: 'domcontentloaded', // Changed from 'networkidle'
       timeout: 30000 
     });
     
+    // Wait for content to load
     await page.waitForTimeout(5000);
+    
+    // Try to wait for events to appear
+    try {
+      await page.waitForSelector('.eelistevent', { timeout: 10000 });
+    } catch (e) {
+      log.info('No .eelistevent elements found, continuing anyway...');
+    }
     
     const events = await page.evaluate(() => {
       const events = [];
@@ -72,9 +80,9 @@ export async function scrapeLibrary(page) {
         
         let dateTime = '';
         const dateTimePatterns = [
-          /\b(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),?\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2}:\s*\d{1,2}:\d{2}\s*(?:AM|PM)\s*[-–—]\s*\d{1,2}:\d{2}\s*(?:AM|PM)/i,
+          /\b(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),?\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2}:\s*\d{1,2}:\d{2}\s*(?:AM|PM)\s*[-—–]\s*\d{1,2}:\d{2}\s*(?:AM|PM)/i,
           /\b(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),?\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2}:\s*\d{1,2}:\d{2}\s*(?:AM|PM)/i,
-          /\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2}:\s*\d{1,2}:\d{2}\s*(?:AM|PM)\s*[-–—]\s*\d{1,2}:\d{2}\s*(?:AM|PM)/i,
+          /\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2}:\s*\d{1,2}:\d{2}\s*(?:AM|PM)\s*[-—–]\s*\d{1,2}:\d{2}\s*(?:AM|PM)/i,
           /\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2}:\s*\d{1,2}:\d{2}\s*(?:AM|PM)/i,
           /\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2}\b/i
         ];
