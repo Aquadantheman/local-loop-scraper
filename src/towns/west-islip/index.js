@@ -1,4 +1,4 @@
-// src/towns/west-islip/index.js - West Islip town coordinator
+// src/towns/west-islip/index.js - Fixed imports
 import { log } from 'apify';
 import { scrapeLibrary } from './sources/library.js';
 import { scrapeChamber } from './sources/chamber.js';
@@ -22,7 +22,7 @@ export async function scrapeWestIslip(page) {
   
   for (const [index, source] of sources.entries()) {
     if (!source.enabled) {
-      log.info(`⏭️  Skipping ${source.name} (disabled)`);
+      log.info(`⭐️  Skipping ${source.name} (disabled)`);
       continue;
     }
     
