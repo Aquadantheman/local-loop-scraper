@@ -1,5 +1,6 @@
-// src/main.js - Local Loop Event Scraper (Final Fix)
+// src/main.js - Local Loop Event Scraper (Correct Puppeteer Import)
 import { Actor, log } from 'apify';
+import puppeteer from 'puppeteer';
 import { scrapeWestIslip } from './towns/west-islip/index.js';
 import { sendToAirtable, verifyAirtableSetup } from './utils/airtable.js';
 import { parseEventDate } from './utils/date-parser.js';
@@ -22,18 +23,17 @@ await Actor.main(async () => {
     airtableReady = await verifyAirtableSetup(process.env.AIRTABLE_TOKEN, process.env.AIRTABLE_BASE_ID);
   }
 
-  // Initialize browser using correct Apify method
-  log.info('🌐 Launching browser with Apify Puppeteer...');
-  const browser = await Actor.launchPuppeteer({
+  // Initialize browser using direct Puppeteer (comes with Apify)
+  log.info('🌐 Launching browser with Puppeteer...');
+  
+  const browser = await puppeteer.launch({
     headless: !input.debug,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
       '--disable-extensions',
-      '--disable-gpu',
-      '--no-first-run',
-      '--disable-default-apps'
+      '--disable-gpu'
     ]
   });
   
@@ -51,17 +51,6 @@ await Actor.main(async () => {
         scraper: scrapeWestIslip,
         enabled: true
       }
-      // Future expansion:
-      // {
-      //   name: 'East Islip', 
-      //   scraper: scrapeEastIslip,
-      //   enabled: true
-      // },
-      // {
-      //   name: 'Babylon',
-      //   scraper: scrapeBabylon, 
-      //   enabled: false
-      // }
     ];
     
     // Scrape each enabled town
