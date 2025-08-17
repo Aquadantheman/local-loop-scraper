@@ -1,6 +1,6 @@
 {
   "name": "local-loop-scraper",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "🏘️ Local Loop - West Islip Event Scraper for hyper-local newsletters",
   "main": "src/main.js",
   "type": "module",
@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "apify": "^3.1.10",
-    "puppeteer": "^21.0.0"
+    "puppeteer-core": "^21.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0"
