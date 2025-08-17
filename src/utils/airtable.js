@@ -1,5 +1,22 @@
-// src/utils/airtable.js - Improved error handling
+// src/utils/airtable.js - Clean error messages
 import { log } from 'apify';
+
+function cleanErrorMessage(error) {
+  // Handle the weird character array error format
+  if (typeof error === 'object' && error !== null && !error.message) {
+    // Convert character array back to string
+    if (Array.isArray(Object.values(error))) {
+      return Object.values(error).join('');
+    }
+    return JSON.stringify(error);
+  }
+  
+  if (error.message) {
+    return error.message;
+  }
+  
+  return String(error);
+}
 
 export async function verifyAirtableSetup(AIRTABLE_TOKEN, AIRTABLE_BASE_ID) {
   try {
@@ -14,7 +31,6 @@ export async function verifyAirtableSetup(AIRTABLE_TOKEN, AIRTABLE_BASE_ID) {
     });
     
     if (!response.ok) {
-      // Handle specific error codes with better messages
       if (response.status === 403) {
         throw new Error('Access forbidden - check your Airtable token permissions');
       } else if (response.status === 404) {
@@ -27,26 +43,18 @@ export async function verifyAirtableSetup(AIRTABLE_TOKEN, AIRTABLE_BASE_ID) {
     }
     
     const baseData = await response.json();
-    
-    // Check if RawEvents table exists
     const rawEventsTable = baseData.tables.find(table => table.name === 'RawEvents');
+    
     if (!rawEventsTable) {
       throw new Error('RawEvents table not found in base');
     }
     
     log.info('✅ Airtable connection verified successfully');
-    log.info(`📊 Base has ${baseData.tables.length} tables, found RawEvents table`);
-    
     return true;
     
   } catch (error) {
-    // Clean error logging
-    let errorMessage = error.message;
-    if (typeof error.message === 'object') {
-      errorMessage = JSON.stringify(error.message);
-    }
-    
-    log.error('❌ Airtable setup verification failed:', errorMessage);
+    const cleanMessage = cleanErrorMessage(error);
+    log.error('❌ Airtable setup verification failed:', cleanMessage);
     log.error('Please check:');
     log.error('1. AIRTABLE_TOKEN is valid and has write permissions');
     log.error('2. AIRTABLE_BASE_ID is correct'); 
@@ -60,20 +68,17 @@ export async function sendToAirtable(events) {
   const AIRTABLE_BASE_ID = process.env.AIRTABLE_BASE_ID;
   
   if (!AIRTABLE_TOKEN || !AIRTABLE_BASE_ID) {
-    const error = 'Airtable credentials not provided. Required: AIRTABLE_TOKEN, AIRTABLE_BASE_ID';
-    log.warning('⚠️ ' + error);
-    return { sent: 0, skipped: events.length, error };
+    log.warning('⚠️ Airtable credentials not provided');
+    return { sent: 0, skipped: events.length, error: 'Missing credentials' };
   }
 
   try {
     log.info(`📤 Starting Airtable integration for ${events.length} events`);
     
     if (events.length === 0) {
-      log.info('📝 No events to send to Airtable');
       return { sent: 0, skipped: 0 };
     }
     
-    // Filter out events with missing required fields
     const validEvents = events.filter(event => {
       if (!event.title_raw || event.title_raw.trim().length === 0) {
         log.warning(`⚠️ Skipping event with empty title`);
@@ -82,22 +87,15 @@ export async function sendToAirtable(events) {
       return true;
     });
     
-    if (validEvents.length !== events.length) {
-      log.warning(`⚠️ Filtered out ${events.length - validEvents.length} invalid events`);
-    }
-    
-    const batchSize = 10; // Airtable limit
+    const batchSize = 10;
     let totalSent = 0;
     let totalErrors = 0;
     const totalBatches = Math.ceil(validEvents.length / batchSize);
-    
-    log.info(`📦 Sending ${validEvents.length} events in ${totalBatches} batches`);
     
     for (let i = 0; i < validEvents.length; i += batchSize) {
       const batch = validEvents.slice(i, i + batchSize);
       const currentBatch = Math.floor(i / batchSize) + 1;
       
-      // Prepare records with proper field mapping and length limits
       const records = batch.map(event => ({
         fields: {
           source_name: String(event.source || 'Unknown Source').substring(0, 255),
@@ -124,30 +122,27 @@ export async function sendToAirtable(events) {
 
         if (!response.ok) {
           const errorText = await response.text();
-          log.error(`❌ Airtable API error for batch ${currentBatch}: ${response.status} - ${errorText}`);
+          log.error(`❌ Airtable batch ${currentBatch} failed: ${response.status} - ${errorText}`);
           totalErrors++;
           continue;
         }
 
         const result = await response.json();
         totalSent += result.records.length;
+        log.info(`📤 Sent batch ${currentBatch}/${totalBatches} - ${result.records.length} records`);
         
-        const percentage = Math.round((currentBatch / totalBatches) * 100);
-        log.info(`📤 Sent batch ${currentBatch}/${totalBatches} (${percentage}%) - ${result.records.length} records`);
-        
-        // Rate limiting: wait between batches
         if (i + batchSize < validEvents.length) {
           await new Promise(resolve => setTimeout(resolve, 200));
         }
         
       } catch (batchError) {
-        log.error(`❌ Error processing batch ${currentBatch}: ${batchError.message}`);
+        const cleanMessage = cleanErrorMessage(batchError);
+        log.error(`❌ Batch ${currentBatch} error: ${cleanMessage}`);
         totalErrors++;
       }
     }
     
-    log.info(`✅ Airtable integration complete!`);
-    log.info(`📊 Results: ${totalSent} sent, ${totalErrors} batch errors`);
+    log.info(`✅ Airtable integration complete: ${totalSent} sent, ${totalErrors} errors`);
     
     return { 
       sent: totalSent, 
@@ -156,16 +151,12 @@ export async function sendToAirtable(events) {
     };
     
   } catch (error) {
-    let errorMessage = error.message;
-    if (typeof error.message === 'object') {
-      errorMessage = JSON.stringify(error.message);
-    }
-    
-    log.error('❌ Failed to send events to Airtable:', errorMessage);
+    const cleanMessage = cleanErrorMessage(error);
+    log.error('❌ Airtable integration failed:', cleanMessage);
     return { 
       sent: 0, 
       skipped: events.length, 
-      error: errorMessage 
+      error: cleanMessage 
     };
   }
 }
