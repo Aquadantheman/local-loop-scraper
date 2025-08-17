@@ -1,4 +1,4 @@
-// src/towns/west-islip/sources/chamber.js - West Islip Chamber of Commerce scraper
+// src/towns/west-islip/sources/chamber.js - Fixed Chamber scraper
 import { log } from 'apify';
 import { generateHash } from '../../../utils/hash-generator.js';
 import { isEventInFuture } from '../../../utils/date-parser.js';
@@ -12,18 +12,19 @@ export async function scrapeChamber(page) {
       timeout: 30000 
     });
     
-    await page.waitForTimeout(8000);
+    // Use setTimeout instead of page.waitForTimeout
+    await new Promise(resolve => setTimeout(resolve, 8000));
     
     await page.evaluate(() => {
       window.scrollTo(0, document.body.scrollHeight);
     });
     
-    await page.waitForTimeout(3000);
+    await new Promise(resolve => setTimeout(resolve, 3000));
     
     const events = await page.evaluate(() => {
       const events = [];
       
-      // First, try to find structured event elements with links
+      // Try to find structured event elements with links
       const eventContainers = [
         '.event-item',
         '.event-card', 
@@ -66,7 +67,7 @@ export async function scrapeChamber(page) {
             // Extract date from the text
             let dateTime = '';
             const datePatterns = [
-              /(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},?\s*\d{4},?\s*\d{1,2}:\d{2}\s*(?:AM|PM)\s*[–—-]\s*\d{1,2}:\d{2}\s*(?:AM|PM)/gi,
+              /(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},?\s*\d{4},?\s*\d{1,2}:\d{2}\s*(?:AM|PM)\s*[—–-]\s*\d{1,2}:\d{2}\s*(?:AM|PM)/gi,
               /(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},?\s*\d{4},?\s*\d{1,2}:\d{2}\s*(?:AM|PM)/gi,
               /(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},?\s*\d{4}/gi
             ];
@@ -101,7 +102,7 @@ export async function scrapeChamber(page) {
       
       // If no structured events found, fall back to text-based extraction
       if (!foundStructuredEvents) {
-        console.log('No structured events found, falling back to text extraction');
+        console.log('No structured events found, trying text extraction');
         
         const bodyText = document.body.textContent || '';
         
@@ -110,53 +111,30 @@ export async function scrapeChamber(page) {
         
         if (upcomingEventsMatch) {
           const eventsSection = upcomingEventsMatch[1];
-          console.log('Found Upcoming Events section:', eventsSection.substring(0, 400));
+          console.log('Found Upcoming Events section');
           
           const eventPatterns = [
-            /([^.]+?)\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s*\d{4},?\s*\d{1,2}:\d{2}\s*(?:AM|PM)\s*[–—-]\s*\d{1,2}:\d{2}\s*(?:AM|PM)\s*([^.]*?)(?=\n|$)/gi,
-            /([^.]+?)\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s*\d{4},?\s*\d{1,2}:\d{2}\s*(?:AM|PM)\s*([^.]*?)(?=\n|$)/gi,
-            /([^.]+?)\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s*\d{4}([^.]*?)(?=\n|$)/gi
+            /([^.]+?)\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s*\d{4},?\s*\d{1,2}:\d{2}\s*(?:AM|PM)\s*[—–-]\s*\d{1,2}:\d{2}\s*(?:AM|PM)\s*([^.]*?)(?=\n|$)/gi,
+            /([^.]+?)\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s*\d{4},?\s*\d{1,2}:\d{2}\s*(?:AM|PM)\s*([^.]*?)(?=\n|$)/gi
           ];
           
           for (const pattern of eventPatterns) {
             let match;
             while ((match = pattern.exec(eventsSection)) !== null) {
-              const [fullMatch, eventName, month] = match;
+              const [fullMatch, eventName] = match;
               
               if (eventName && eventName.trim().length > 5) {
                 const title = eventName.trim();
                 
-                const dateMatch = fullMatch.match(/(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s*\d{4},?\s*\d{1,2}:\d{2}\s*(?:AM|PM)(?:\s*[–—-]\s*\d{1,2}:\d{2}\s*(?:AM|PM))?/i);
+                const dateMatch = fullMatch.match(/(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s*\d{4},?\s*\d{1,2}:\d{2}\s*(?:AM|PM)(?:\s*[—–-]\s*\d{1,2}:\d{2}\s*(?:AM|PM))?/i);
                 const dateTime = dateMatch ? dateMatch[0] : '';
-                
-                const locationMatch = fullMatch.match(/(?:\d{1,2}:\d{2}\s*(?:AM|PM))\s*[–—-]?\s*(?:\d{1,2}:\d{2}\s*(?:AM|PM))?\s*(.+?)$/i);
-                let location = 'West Islip Chamber of Commerce Area';
-                if (locationMatch && locationMatch[1]) {
-                  location = locationMatch[1].trim();
-                  location = location.replace(/Learn more.*$/i, '').trim();
-                }
-                
-                // Try to find URL for this event by looking for links with similar text
-                let eventUrl = '';
-                const allLinks = document.querySelectorAll('a[href]');
-                
-                for (const link of allLinks) {
-                  const linkText = link.textContent.toLowerCase();
-                  const titleWords = title.toLowerCase().split(' ').slice(0, 3); // First 3 words
-                  
-                  if (titleWords.some(word => word.length > 3 && linkText.includes(word))) {
-                    eventUrl = link.href;
-                    console.log(`Found matching URL for "${title}": ${eventUrl}`);
-                    break;
-                  }
-                }
                 
                 events.push({
                   title_raw: title.substring(0, 150),
                   description_raw: fullMatch.substring(0, 500),
                   start_raw: dateTime,
-                  location_raw: location,
-                  url_raw: eventUrl,
+                  location_raw: 'West Islip Chamber of Commerce Area',
+                  url_raw: '',
                   category_hint: 'chamber',
                   source: 'West Islip Chamber of Commerce',
                   fetched_at: new Date().toISOString()
@@ -168,10 +146,6 @@ export async function scrapeChamber(page) {
       }
       
       console.log(`Total events found: ${events.length}`);
-      events.forEach((event, i) => {
-        console.log(`Event ${i + 1}: "${event.title_raw}" - URL: "${event.url_raw}" - Date: "${event.start_raw}"`);
-      });
-      
       return events;
     });
     
@@ -198,7 +172,7 @@ export async function scrapeChamber(page) {
     }
     
     if (uniqueEvents.length > 0) {
-      log.info(`Sample chamber event: "${uniqueEvents[0].title_raw}" - Date: "${uniqueEvents[0].start_raw}" - URL: "${uniqueEvents[0].url_raw}"`);
+      log.info(`Sample chamber event: "${uniqueEvents[0].title_raw}" - Date: "${uniqueEvents[0].start_raw}"`);
     }
     
     return uniqueEvents;
