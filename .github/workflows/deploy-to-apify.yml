@@ -70,20 +70,20 @@ jobs:
       deployment-url: ${{ steps.deploy-step.outputs.deployment-url }}
     
     steps:
-    - name: 📥 Checkout repository
+    - name: 🔥 Checkout repository
       uses: actions/checkout@v4
     
     - name: 🔧 Setup Node.js
       uses: actions/setup-node@v4
       with:
         node-version: ${{ env.NODE_VERSION }}
-        cache: 'npm'
     
-    - name: 📦 Install dependencies
-      run: npm install
-    
-    - name: 🔧 Install Apify CLI
-      run: npm install -g apify-cli@latest
+    - name: 📦 Install dependencies and setup
+      run: |
+        echo "📦 Installing Apify CLI and dependencies..."
+        npm install -g apify-cli@latest
+        npm install apify@3.1.10 --no-save
+        echo "✅ Setup complete"
     
     - name: 🚀 Deploy to Apify
       id: deploy-step
@@ -93,27 +93,12 @@ jobs:
         echo "🔐 Logging into Apify..."
         apify login --token $APIFY_TOKEN
         
-        echo "🏗️ Pushing actor to Apify..."
+        echo "🗂️ Pushing actor to Apify..."
         apify push
         
         echo "✅ Deployment completed!"
-        
-        # Get actor info for outputs
-        ACTOR_INFO=$(apify info --json 2>/dev/null || echo '{}')
-        ACTOR_ID=$(echo $ACTOR_INFO | jq -r '.id // empty')
-        
-        if [ -n "$ACTOR_ID" ]; then
-          echo "actor-id=$ACTOR_ID" >> $GITHUB_OUTPUT
-          echo "deployment-url=https://console.apify.com/actors/$ACTOR_ID" >> $GITHUB_OUTPUT
-          echo "🎯 Actor ID: $ACTOR_ID"
-        else
-          echo "⚠️ Could not determine actor ID from apify info"
-          # Try to get it from the current directory name or package.json
-          ACTOR_NAME=$(basename $(pwd) | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g')
-          echo "📝 Using actor name: $ACTOR_NAME"
-          echo "actor-id=$ACTOR_NAME" >> $GITHUB_OUTPUT
-          echo "deployment-url=https://console.apify.com/actors" >> $GITHUB_OUTPUT
-        fi
+        echo "actor-id=local-loop-scraper" >> $GITHUB_OUTPUT
+        echo "deployment-url=https://console.apify.com/actors" >> $GITHUB_OUTPUT
 
   # Job 2: Run Scraper
   scrape:
@@ -141,6 +126,8 @@ jobs:
       id: scrape-step
       env:
         APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+        AIRTABLE_TOKEN: ${{ secrets.AIRTABLE_TOKEN }}
+        AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
       run: |
         apify login --token $APIFY_TOKEN
         
@@ -184,7 +171,7 @@ jobs:
         EOF
         )
         
-        echo "📝 Input: $INPUT_JSON"
+        echo "🔍 Input: $INPUT_JSON"
         
         # Get actor identifier
         ACTOR_ID="${{ needs.deploy.outputs.actor-id }}"
@@ -251,7 +238,7 @@ jobs:
        github.event.inputs.trigger_newsletter == 'true')
     
     steps:
-    - name: 🔔 Trigger Make.com newsletter generation
+    - name: 📧 Trigger Make.com newsletter generation
       env:
         MAKECOM_WEBHOOK_URL: ${{ secrets.MAKECOM_WEBHOOK_URL }}
       run: |
@@ -354,7 +341,7 @@ jobs:
           echo "- Next newsletter generation: Friday 10 AM ET" >> $GITHUB_STEP_SUMMARY
         fi
     
-    - name: 🔔 Send notifications on failure
+    - name: 📣 Send notifications on failure
       if: failure() && github.ref == 'refs/heads/main'
       env:
         SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
