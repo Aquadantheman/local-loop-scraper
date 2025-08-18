@@ -57,7 +57,7 @@ on:
           - 'false'
 
 env:
-  NODE_VERSION: '18'
+  NODE_VERSION: '20'
   APIFY_TIMEOUT: 1800
 
 jobs:
