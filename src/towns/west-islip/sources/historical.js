@@ -1,4 +1,4 @@
-// src/towns/west-islip/sources/historical.js - Fixed Historical Society scraper
+// src/towns/west-islip/sources/historical.js - Debug version
 import { log } from 'apify';
 import { generateHash } from '../../../utils/hash-generator.js';
 import { isEventInFuture } from '../../../utils/date-parser.js';
@@ -12,15 +12,15 @@ export async function scrapeHistoricalSociety(page) {
       timeout: 30000 
     });
     
-    // Use setTimeout instead of page.waitForTimeout
     await new Promise(resolve => setTimeout(resolve, 5000));
     
     const events = await page.evaluate(() => {
       const events = [];
       
       const eventLinks = document.querySelectorAll('a[href*="eventdetail"]');
+      console.log(`Found ${eventLinks.length} event links`);
       
-      eventLinks.forEach((link) => {
+      eventLinks.forEach((link, index) => {
         const linkText = link.textContent?.trim() || '';
         const href = link.href || '';
         
@@ -29,6 +29,7 @@ export async function scrapeHistoricalSociety(page) {
         let contextText = '';
         let currentElement = link.parentElement;
         
+        // Get more context from parent elements
         for (let i = 0; i < 5; i++) {
           if (currentElement) {
             const text = currentElement.textContent || '';
@@ -43,21 +44,32 @@ export async function scrapeHistoricalSociety(page) {
         
         let dateTime = '';
         
-        const fullDateMatch = contextText.match(/(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),?\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+\d{4}\s+\d{1,2}:\d{2}(?:am|pm)\s*-\s*\d{1,2}:\d{2}(?:am|pm)/i);
-        if (fullDateMatch) {
-          dateTime = fullDateMatch[0];
-        } else {
-          const dateMatch = contextText.match(/(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),?\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+\d{4}/i);
-          if (dateMatch) {
-            dateTime = dateMatch[0];
-            
-            const timeMatch = contextText.match(/\d{1,2}:\d{2}(?:am|pm)\s*-\s*\d{1,2}:\d{2}(?:am|pm)/i);
-            if (timeMatch) {
-              dateTime += ` ${timeMatch[0]}`;
-            }
+        // Try multiple date patterns to find the date
+        const datePatterns = [
+          // Full format: "Tuesday, February 04, 2025 12:00pm - 02:00pm"
+          /(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),?\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),?\s+(\d{4})\s+(\d{1,2}):(\d{2})(?:am|pm)\s*-\s*(\d{1,2}):(\d{2})(?:am|pm)/i,
+          // Date with single time: "Tuesday, February 04, 2025 12:00pm"
+          /(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),?\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),?\s+(\d{4})\s+(\d{1,2}):(\d{2})(?:am|pm)/i,
+          // Just date: "Tuesday, February 04, 2025"
+          /(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),?\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),?\s+(\d{4})/i
+        ];
+        
+        for (const pattern of datePatterns) {
+          const match = contextText.match(pattern);
+          if (match) {
+            dateTime = match[0];
+            console.log(`Event ${index + 1}: Found date "${dateTime}" for "${title}"`);
+            break;
           }
         }
         
+        // If no date found in context, log for debugging
+        if (!dateTime) {
+          console.log(`Event ${index + 1}: No date found for "${title}"`);
+          console.log(`Context: ${contextText.substring(0, 200)}...`);
+        }
+        
+        // Create description based on event type
         let description = `${title} at the West Islip Historical Society.`;
         
         if (title.toLowerCase().includes('history center open')) {
@@ -68,6 +80,7 @@ export async function scrapeHistoricalSociety(page) {
           description = 'Special community event celebrating Lizzy the Lion and West Islip local history. Family-friendly activities and historical presentations.';
         }
         
+        // Categorize the event
         let category = 'historical society';
         if (title.toLowerCase().includes('open')) {
           category = 'historical society - open house';
@@ -85,27 +98,41 @@ export async function scrapeHistoricalSociety(page) {
           url_raw: href,
           category_hint: category,
           source: 'West Islip Historical Society',
-          fetched_at: new Date().toISOString()
+          fetched_at: new Date().toISOString(),
+          debug_info: {
+            linkText: linkText,
+            contextLength: contextText.length,
+            hasDateTime: !!dateTime
+          }
         });
       });
       
       return events;
     });
     
+    // Process events with detailed logging
     const uniqueEvents = [];
     const seenHashes = new Set();
     let filteredOutPastEvents = 0;
     
-    events.forEach(event => {
+    log.info(`Processing ${events.length} historical society events...`);
+    
+    events.forEach((event, index) => {
       event.hash = generateHash(event.title_raw, event.start_raw, event.description_raw, event.source);
+      
+      log.info(`Event ${index + 1}: "${event.title_raw}" - Date: "${event.start_raw}"`);
       
       if (isEventInFuture(event.start_raw)) {
         if (!seenHashes.has(event.hash)) {
           seenHashes.add(event.hash);
           uniqueEvents.push(event);
+          log.info(`  ✅ Added to future events`);
+        } else {
+          log.info(`  🔄 Duplicate event (same hash)`);
         }
       } else {
         filteredOutPastEvents++;
+        log.info(`  📅 Filtered out (past event)`);
       }
     });
     
