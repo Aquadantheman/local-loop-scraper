@@ -100,7 +100,7 @@ jobs:
         echo "actor-id=local-loop-scraper" >> $GITHUB_OUTPUT
         echo "deployment-url=https://console.apify.com/actors" >> $GITHUB_OUTPUT
 
- # Job 2: Run Scraper
+  # Job 2: Run Scraper
   scrape:
     runs-on: ubuntu-latest
     needs: [deploy]
@@ -119,13 +119,13 @@ jobs:
       run-url: ${{ steps.scrape-step.outputs.run-url }}
     
     steps:
-    - name: 🔧 Setup Node.js 20
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20'
-        
     - name: 🔧 Install Apify CLI
-      run: npm install -g apify-cli@latest
+      run: |
+        echo "🔧 Installing Apify CLI..."
+        node --version
+        npm --version
+        npm install -g apify-cli@latest
+        echo "✅ Apify CLI installed"
       
     - name: 🏃 Run Local Loop scraper
       id: scrape-step
@@ -135,9 +135,6 @@ jobs:
         AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
       run: |
         apify login --token $APIFY_TOKEN
-        
-        # Rest of your scraping logic...
-        # (keep all the existing logic from your current scrape step)
         
         # Determine run type and configure input
         RUN_TYPE="unknown"
