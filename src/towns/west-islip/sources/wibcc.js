@@ -1,4 +1,4 @@
-// src/towns/west-islip/sources/wibcc.js - Improved for GoDaddy dynamic content
+// src/towns/west-islip/sources/wibcc.js - Targeted scraper based on actual WIBCC website
 import { log } from 'apify';
 import { generateHash } from '../../../utils/hash-generator.js';
 import { isEventInFuture } from '../../../utils/date-parser.js';
@@ -7,203 +7,185 @@ export async function scrapeWIBCC(page) {
   log.info('=== SCRAPING: West Islip Breast Cancer Coalition (WIBCC) ===');
   
   try {
-    const allEvents = [];
-    
-    // Try main website first
-    log.info('🔍 Checking main WIBCC website...');
-    await page.goto('https://wibcc.org/', { 
-      waitUntil: 'networkidle2',  // Wait for network activity to stop
+    // Go directly to their events page which has the calendar
+    log.info('🔍 Loading WIBCC events calendar...');
+    await page.goto('https://wibcc.org/events', { 
+      waitUntil: 'networkidle2',
       timeout: 45000 
     });
     
-    // Wait extra time for GoDaddy Website Builder to load content
-    log.info('⏳ Waiting for dynamic content to load...');
-    await new Promise(resolve => setTimeout(resolve, 10000));
+    // Wait for GoDaddy Website Builder to fully load the calendar
+    log.info('⏳ Waiting for calendar to load...');
+    await new Promise(resolve => setTimeout(resolve, 12000));
     
-    // Scroll to trigger any lazy-loaded content
+    // Scroll to make sure all content is loaded
     await page.evaluate(() => {
       window.scrollTo(0, document.body.scrollHeight);
     });
     await new Promise(resolve => setTimeout(resolve, 3000));
     
-    // Get all content after JavaScript has loaded
-    const mainPageEvents = await page.evaluate(() => {
+    const events = await page.evaluate(() => {
       const events = [];
       
-      // Get all visible text content
-      const allText = document.body.innerText || document.body.textContent || '';
+      console.log('WIBCC: Starting event extraction...');
       
-      console.log('WIBCC Debug: Page text length:', allText.length);
-      console.log('WIBCC Debug: First 500 chars:', allText.substring(0, 500));
+      // Method 1: Look for the specific calendar structure
+      // Based on the screenshot, events seem to be in a structured layout
+      const calendarEvents = [];
       
-      // Look for event-related content more broadly
-      const eventIndicators = [
-        'august', 'september', 'october', 'november', 'december',
-        'fundraiser', 'event', 'contest', 'clam', 'shucking', 
-        'screening', 'awareness', 'coalition', 'benefit',
-        '2025', '2026', 'tuesday', 'wednesday', 'thursday', 'friday',
-        'marina', 'hospital', 'center'
-      ];
+      // Look for date headers and corresponding event info
+      const allText = document.body.innerText || '';
+      console.log('WIBCC: Page text length:', allText.length);
+      console.log('WIBCC: Sample text:', allText.substring(0, 1000));
       
-      // Check if any event indicators are present
-      const hasEventContent = eventIndicators.some(indicator => 
-        allText.toLowerCase().includes(indicator)
-      );
+      // Method 2: Parse the visible text for the specific events we can see
+      const lines = allText.split('\n').filter(line => line.trim().length > 0);
       
-      console.log('WIBCC Debug: Has event content:', hasEventContent);
+      let currentDate = '';
+      let currentEvent = null;
       
-      if (hasEventContent) {
-        // Split text into sentences and look for event-like content
-        const sentences = allText.split(/[.!?]\s+/).filter(s => s.trim().length > 20);
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
         
-        sentences.forEach((sentence, index) => {
-          const lowerSentence = sentence.toLowerCase();
+        // Look for date headers like "AUGUST 12TH", "OCTOBER 4TH"
+        const dateMatch = line.match(/^(JANUARY|FEBRUARY|MARCH|APRIL|MAY|JUNE|JULY|AUGUST|SEPTEMBER|OCTOBER|NOVEMBER|DECEMBER)\s+(\d{1,2})(?:ST|ND|RD|TH)?$/i);
+        
+        if (dateMatch) {
+          currentDate = line;
+          console.log('WIBCC: Found date header:', currentDate);
+          continue;
+        }
+        
+        // If we have a current date and this line looks like an event title
+        if (currentDate && line.length > 10 && line.length < 200) {
           
-          // Look for sentences that mention dates and event keywords
-          const hasEventKeyword = [
-            'clam shucking', 'fundraiser', 'event', 'contest', 'screening',
-            'awareness', 'benefit', 'coalition', 'august', 'september', 'october'
-          ].some(keyword => lowerSentence.includes(keyword));
+          // Skip lines that are clearly times or addresses by themselves
+          if (line.match(/^\d{1,2}(AM|PM)\s*-\s*\d{1,2}(AM|PM)$/i) || 
+              line.match(/^\d+\s+\w+\s+(Ave|St|Drive|Rd|Road|Hwy|Highway)/i)) {
+            continue;
+          }
           
-          // Look for date patterns in this sentence and nearby sentences
-          const datePatterns = [
-            /\b(?:august|september|october|november|december)\s+\d{1,2}(?:st|nd|rd|th)?,?\s*\d{4}\b/gi,
-            /\b(?:aug|sep|oct|nov|dec)\s+\d{1,2}(?:st|nd|rd|th)?,?\s*\d{4}\b/gi,
-            /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/g,
-            /\btuesday,?\s+(?:august|september|october)\s+\d{1,2}(?:st|nd|rd|th)?\b/gi
-          ];
+          // This looks like an event title
+          const eventTitle = line;
+          let eventTime = '';
+          let eventLocation = '';
           
-          let foundDate = '';
-          for (const pattern of datePatterns) {
-            const match = sentence.match(pattern);
-            if (match) {
-              foundDate = match[0];
+          // Look at the next few lines for time and location
+          for (let j = i + 1; j < Math.min(i + 4, lines.length); j++) {
+            const nextLine = lines[j].trim();
+            
+            // Look for time patterns
+            if (nextLine.match(/\d{1,2}(AM|PM)\s*-\s*\d{1,2}(AM|PM)/i)) {
+              eventTime = nextLine;
+            }
+            // Look for location patterns (address-like strings)
+            else if (nextLine.match(/\d+\s+\w+|\w+\s+(Ave|St|Drive|Rd|Road|Hwy|Highway|Marina|Hospital|Center|Hall)/i)) {
+              eventLocation = nextLine;
+            }
+            // If we hit another date or event title, stop
+            else if (nextLine.match(/^(JANUARY|FEBRUARY|MARCH|APRIL|MAY|JUNE|JULY|AUGUST|SEPTEMBER|OCTOBER|NOVEMBER|DECEMBER)\s+\d{1,2}/i) ||
+                     (nextLine.length > 20 && !nextLine.match(/^\d/) && !nextLine.includes('NY'))) {
               break;
             }
           }
           
-          if (hasEventKeyword && foundDate) {
-            // Create event from this sentence
-            let title = sentence.split(',')[0].trim();
-            if (title.length > 100) {
-              title = title.substring(0, 100) + '...';
+          // Construct the full date string
+          let fullDate = currentDate;
+          if (eventTime) {
+            fullDate += `, 2025 ${eventTime}`;
+          } else {
+            fullDate += `, 2025`;
+          }
+          
+          // Use location or default
+          if (!eventLocation) {
+            eventLocation = 'West Islip Breast Cancer Coalition Area';
+          }
+          
+          // Determine category
+          let category = 'wibcc - general';
+          const lowerTitle = eventTitle.toLowerCase();
+          if (lowerTitle.includes('clam')) category = 'wibcc - clam shucking';
+          else if (lowerTitle.includes('awareness')) category = 'wibcc - awareness';
+          else if (lowerTitle.includes('screening')) category = 'wibcc - health screening';
+          else if (lowerTitle.includes('fundraiser') || lowerTitle.includes('boobs matter')) category = 'wibcc - fundraiser';
+          else if (lowerTitle.includes('pink flags')) category = 'wibcc - memorial';
+          else if (lowerTitle.includes('ducks')) category = 'wibcc - sports awareness';
+          
+          const eventObj = {
+            title_raw: eventTitle,
+            description_raw: `${eventTitle} - West Islip Breast Cancer Coalition event. ${eventLocation}`,
+            start_raw: fullDate,
+            location_raw: eventLocation,
+            url_raw: 'https://wibcc.org/events',
+            category_hint: category,
+            source: 'West Islip Breast Cancer Coalition',
+            fetched_at: new Date().toISOString(),
+            detection_method: 'calendar_text_parsing'
+          };
+          
+          events.push(eventObj);
+          console.log('WIBCC: Added event:', eventTitle, 'on', fullDate);
+          
+          // Reset for next event
+          currentDate = '';
+        }
+      }
+      
+      // Method 3: Fallback - look for specific known events in the text
+      if (events.length === 0) {
+        console.log('WIBCC: No events found via calendar parsing, trying text search...');
+        
+        const knownEventPatterns = [
+          { pattern: /31st.*?annual.*?clam.*?shucking/i, title: '31st Annual Clam Shucking Event', category: 'wibcc - clam shucking' },
+          { pattern: /clam.*?shucking.*?event/i, title: 'Annual Clam Shucking Event', category: 'wibcc - clam shucking' },
+          { pattern: /breast.*?cancer.*?awareness.*?night/i, title: 'Breast Cancer Awareness Night', category: 'wibcc - awareness' },
+          { pattern: /pink.*?flags.*?celebration/i, title: 'Annual Pink Flags Celebration', category: 'wibcc - memorial' },
+          { pattern: /all.*?boobs.*?matter/i, title: 'All Boobs Matter Fundraiser', category: 'wibcc - fundraiser' },
+          { pattern: /august.*?12/i, title: 'WIBCC August Event', category: 'wibcc - general' }
+        ];
+        
+        knownEventPatterns.forEach(pattern => {
+          if (pattern.pattern.test(allText)) {
+            console.log('WIBCC: Found known event pattern:', pattern.title);
+            
+            // Try to extract date from nearby text
+            const match = allText.match(pattern.pattern);
+            if (match) {
+              const matchIndex = allText.indexOf(match[0]);
+              const surroundingText = allText.substring(Math.max(0, matchIndex - 200), matchIndex + 200);
+              
+              const dateMatch = surroundingText.match(/(?:august|september|october|november|december)\s+\d{1,2}(?:st|nd|rd|th)?,?\s*\d{4}/gi);
+              
+              events.push({
+                title_raw: pattern.title,
+                description_raw: `${pattern.title} - West Islip Breast Cancer Coalition community event.`,
+                start_raw: dateMatch ? dateMatch[0] : 'August 12, 2025',
+                location_raw: 'West Islip Breast Cancer Coalition Area',
+                url_raw: 'https://wibcc.org/events',
+                category_hint: pattern.category,
+                source: 'West Islip Breast Cancer Coalition',
+                fetched_at: new Date().toISOString(),
+                detection_method: 'pattern_matching'
+              });
             }
-            
-            // Determine category
-            let category = 'wibcc - general';
-            if (lowerSentence.includes('clam')) category = 'wibcc - clam shucking';
-            else if (lowerSentence.includes('screening')) category = 'wibcc - health screening';
-            else if (lowerSentence.includes('awareness')) category = 'wibcc - awareness';
-            else if (lowerSentence.includes('fundraiser')) category = 'wibcc - fundraiser';
-            
-            events.push({
-              title_raw: title,
-              description_raw: sentence.trim(),
-              start_raw: foundDate,
-              location_raw: 'West Islip Breast Cancer Coalition Area',
-              url_raw: window.location.href,
-              category_hint: category,
-              source: 'West Islip Breast Cancer Coalition',
-              fetched_at: new Date().toISOString(),
-              detection_method: 'dynamic_content_analysis'
-            });
-            
-            console.log(`WIBCC Debug: Found event - "${title}" on ${foundDate}`);
           }
         });
       }
       
-      // Also look for any elements that might contain event info
-      const allElements = document.querySelectorAll('*');
-      Array.from(allElements).forEach(element => {
-        const elementText = element.textContent || '';
-        
-        if (elementText.length > 50 && elementText.length < 500) {
-          const lowerText = elementText.toLowerCase();
-          
-          // Check for specific WIBCC events we know about
-          if (lowerText.includes('clam shucking') || 
-              lowerText.includes('31st') || 
-              lowerText.includes('32nd') ||
-              lowerText.includes('august 12')) {
-            
-            // Look for date in this element
-            const dateMatch = elementText.match(/(?:august|aug)\s+\d{1,2}(?:st|nd|rd|th)?,?\s*\d{4}/gi);
-            
-            if (dateMatch) {
-              events.push({
-                title_raw: 'Annual Clam Shucking Fundraising Event',
-                description_raw: elementText.trim(),
-                start_raw: dateMatch[0],
-                location_raw: 'Bay Shore Marina, Bay Shore, NY',
-                url_raw: window.location.href,
-                category_hint: 'wibcc - clam shucking',
-                source: 'West Islip Breast Cancer Coalition',
-                fetched_at: new Date().toISOString(),
-                detection_method: 'element_text_analysis'
-              });
-              
-              console.log(`WIBCC Debug: Found clam shucking event from element`);
-            }
-          }
-        }
-      });
-      
-      console.log(`WIBCC Debug: Total events found: ${events.length}`);
+      console.log('WIBCC: Total events found:', events.length);
       return events;
     });
     
-    allEvents.push(...mainPageEvents);
-    
-    // If no events found on main page, try to look for Facebook or other social links
-    if (allEvents.length === 0) {
-      log.info('🔍 No events found on main page, checking for social media links...');
-      
-      const socialLinks = await page.evaluate(() => {
-        const links = [];
-        const allLinks = document.querySelectorAll('a[href]');
-        
-        Array.from(allLinks).forEach(link => {
-          const href = link.href || '';
-          if (href.includes('facebook.com') || 
-              href.includes('instagram.com') || 
-              href.includes('eventbrite.com')) {
-            links.push(href);
-          }
-        });
-        
-        return links;
-      });
-      
-      log.info(`Found ${socialLinks.length} social media links: ${socialLinks.join(', ')}`);
-      
-      // If they have Facebook, that's likely where events are posted
-      if (socialLinks.some(link => link.includes('facebook.com'))) {
-        // Add a placeholder event indicating where to find current events
-        allEvents.push({
-          title_raw: 'WIBCC Events - Check Facebook for Current Schedule',
-          description_raw: 'The West Islip Breast Cancer Coalition posts their current events and announcements on their Facebook page. Follow them for the latest fundraising events, health screenings, and community activities.',
-          start_raw: 'Ongoing',
-          location_raw: 'Various Locations',
-          url_raw: 'https://wibcc.org/',
-          category_hint: 'wibcc - info',
-          source: 'West Islip Breast Cancer Coalition',
-          fetched_at: new Date().toISOString(),
-          detection_method: 'social_media_reference'
-        });
-      }
-    }
-    
-    // Process and filter events
+    // Filter and deduplicate
     const uniqueEvents = [];
     const seenHashes = new Set();
     let filteredOutPastEvents = 0;
     
-    allEvents.forEach(event => {
+    events.forEach(event => {
       event.hash = generateHash(event.title_raw, event.start_raw, event.description_raw, event.source);
       
-      // For "Ongoing" events or events without specific dates, always include them
-      if (event.start_raw === 'Ongoing' || !event.start_raw || isEventInFuture(event.start_raw)) {
+      if (isEventInFuture(event.start_raw)) {
         if (!seenHashes.has(event.hash)) {
           seenHashes.add(event.hash);
           uniqueEvents.push(event);
@@ -213,7 +195,7 @@ export async function scrapeWIBCC(page) {
       }
     });
     
-    log.info(`Extracted ${uniqueEvents.length} unique events from West Islip Breast Cancer Coalition`);
+    log.info(`Extracted ${uniqueEvents.length} unique future events from West Islip Breast Cancer Coalition`);
     if (filteredOutPastEvents > 0) {
       log.info(`Filtered out ${filteredOutPastEvents} past events from WIBCC`);
     }
@@ -223,7 +205,7 @@ export async function scrapeWIBCC(page) {
         log.info(`WIBCC Event ${i + 1}: "${event.title_raw}" - ${event.start_raw} (${event.detection_method})`);
       });
     } else {
-      log.warning('No WIBCC events detected - their website may not have current events posted or content is heavily JavaScript-dependent');
+      log.warning('No WIBCC events detected despite calendar being visible');
     }
     
     return uniqueEvents;
