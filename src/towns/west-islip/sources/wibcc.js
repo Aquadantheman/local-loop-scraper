@@ -10,8 +10,7 @@ export async function scrapeWIBCC(page) {
     const allEvents = [];
     const sources = [
       'https://wibcc.org/',
-      'https://wibcc.org/events',
-      'https://www.facebook.com/wibcc/',  // Their Facebook page often has event announcements
+      'https://wibcc.org/events'
     ];
     
     for (const url of sources) {
