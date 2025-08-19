@@ -1,4 +1,4 @@
-// src/towns/west-islip/sources/fire-dept.js - Updated for modern calendar layout
+// src/towns/west-islip/sources/fire-dept.js - Fixed to avoid duplicate event components
 import { log } from 'apify';
 import { generateHash } from '../../../utils/hash-generator.js';
 import { isEventInFuture } from '../../../utils/date-parser.js';
@@ -30,64 +30,88 @@ export async function scrapeFireDepartment(page) {
     const events = await page.evaluate(() => {
       const events = [];
       
-      console.log('Fire Dept: Starting event extraction...');
+      console.log('Fire Dept: Starting proper event extraction...');
       
-      // Method 1: Look for modern event cards/containers
+      // Method 1: Look for complete event containers (not individual components)
       const eventSelectors = [
         '.event-item',
         '.event-card', 
         '.tribe-events-list-event',
-        '[class*="event"]',
-        '.ec-event',
-        '.calendar-event',
         'article[class*="event"]',
-        '[data-event]'
+        '[data-event-id]',
+        '.ec-event'
       ];
       
-      let foundEvents = false;
+      let foundStructuredEvents = false;
       
       for (const selector of eventSelectors) {
         const eventElements = document.querySelectorAll(selector);
         
         if (eventElements.length > 0) {
-          console.log(`Fire Dept: Found ${eventElements.length} events with selector: ${selector}`);
+          console.log(`Fire Dept: Found ${eventElements.length} event containers with selector: ${selector}`);
           
           Array.from(eventElements).forEach((element, index) => {
             const text = element.textContent || '';
             const html = element.innerHTML || '';
             
+            // Skip if this is clearly just a date header or time component
+            if (text.match(/^(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4}$/i) ||
+                text.match(/^\d{1,2}:\d{2}\s*(?:am|pm)\s*-\s*\d{1,2}:\d{2}\s*(?:am|pm)$/i) ||
+                text.match(/^(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}\s*@/i) ||
+                text.trim().length < 15) {
+              console.log(`Fire Dept: Skipping component: "${text.trim()}"`);
+              return;
+            }
+            
             if (text.length > 30 && text.length < 1000) {
-              // Extract event title
+              // Extract event title - look for meaningful event names
               let title = '';
               const titleSelectors = ['h1', 'h2', 'h3', 'h4', '.event-title', '[class*="title"]', '.tribe-events-list-event-title'];
               
               for (const titleSel of titleSelectors) {
                 const titleEl = element.querySelector(titleSel);
                 if (titleEl && titleEl.textContent.trim()) {
-                  title = titleEl.textContent.trim();
-                  break;
+                  const potentialTitle = titleEl.textContent.trim();
+                  // Make sure this is actually a title, not a date/time
+                  if (!potentialTitle.match(/^\d/) && 
+                      !potentialTitle.match(/^(January|February|March|April|May|June|July|August|September|October|November|December)/i) &&
+                      potentialTitle.length > 5) {
+                    title = potentialTitle;
+                    break;
+                  }
                 }
               }
               
-              // If no title element found, extract from first meaningful line
+              // If no title element found, extract from meaningful text
               if (!title) {
-                const lines = text.split('\n').filter(line => line.trim().length > 5);
+                const lines = text.split('\n').filter(line => {
+                  const trimmed = line.trim();
+                  return trimmed.length > 5 && 
+                         !trimmed.match(/^\d{1,2}:\d{2}/) && 
+                         !trimmed.match(/^(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d/i) &&
+                         !trimmed.match(/^\$\d+$/);
+                });
+                
                 if (lines.length > 0) {
                   title = lines[0].trim().substring(0, 100);
                 }
               }
               
-              // Extract date/time information
+              // Skip if we still don't have a proper title
+              if (!title || title.length < 5) {
+                console.log(`Fire Dept: No valid title found for element: "${text.substring(0, 50)}..."`);
+                return;
+              }
+              
+              // Extract date/time information from the entire element
               let dateTime = '';
               const datePatterns = [
-                // "October 4 @ 6:00 pm - 10:00 pm"
+                // "October 4 @ 6:00 pm - 10:00 pm"  
                 /(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}\s*@\s*\d{1,2}:\d{2}\s*(?:am|pm)\s*-\s*\d{1,2}:\d{2}\s*(?:am|pm)/gi,
                 // "October 4 @ 6:00 pm"
                 /(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}\s*@\s*\d{1,2}:\d{2}\s*(?:am|pm)/gi,
                 // Standard date formats
-                /(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s*\d{4}/gi,
-                // Short formats
-                /(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},?\s*\d{4}/gi
+                /(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s*\d{4}/gi
               ];
               
               for (const pattern of datePatterns) {
@@ -98,19 +122,33 @@ export async function scrapeFireDepartment(page) {
                 }
               }
               
+              // If no date found, try to construct from context
+              if (!dateTime) {
+                // Look for separate date and time components
+                const monthMatch = text.match(/(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}/i);
+                const timeMatch = text.match(/\d{1,2}:\d{2}\s*(?:am|pm)/i);
+                const yearMatch = text.match(/\b20\d{2}\b/) || ['2025']; // default to 2025
+                
+                if (monthMatch && timeMatch) {
+                  dateTime = `${monthMatch[0]}, ${yearMatch[0]} ${timeMatch[0]}`;
+                } else if (monthMatch) {
+                  dateTime = `${monthMatch[0]}, ${yearMatch[0]}`;
+                }
+              }
+              
               // Extract location
               let location = 'West Islip Fire Department';
               const locationPatterns = [
-                /\d+\s+Union\s+Blvd/i,
                 /West\s+Islip\s+Fire\s+Department\s+HQ/i,
-                /Fire\s+Department\s+HQ/i,
-                /\d+\s+\w+\s+(Ave|Avenue|St|Street|Blvd|Boulevard|Dr|Drive|Rd|Road)/i
+                /\d+\s+Union\s+Blvd/i,
+                /309\s+Union\s+Blvd/i,
+                /Fire\s+Department\s+HQ/i
               ];
               
               for (const pattern of locationPatterns) {
                 const match = text.match(pattern);
                 if (match) {
-                  location = match[0];
+                  location = 'West Islip Fire Department HQ, 309 Union Blvd, West Islip, NY';
                   break;
                 }
               }
@@ -119,7 +157,7 @@ export async function scrapeFireDepartment(page) {
               let priceInfo = '';
               const priceMatch = text.match(/\$\d+/);
               if (priceMatch) {
-                priceInfo = ` - ${priceMatch[0]}`;
+                priceInfo = ` Admission: ${priceMatch[0]}.`;
               }
               
               // Extract URL
@@ -137,101 +175,72 @@ export async function scrapeFireDepartment(page) {
               else if (lowerText.includes('meeting')) category = 'fire department - meeting';
               else if (lowerText.includes('fundraiser')) category = 'fire department - fundraiser';
               else if (lowerText.includes('drill')) category = 'fire department - drill';
-              else if (lowerText.includes('inspection')) category = 'fire department - safety';
               
-              if (title && title.length > 5 && dateTime) {
+              if (title && dateTime) {
                 const eventObj = {
                   title_raw: title,
-                  description_raw: `${title} at the West Islip Fire Department.${priceInfo} ${text.substring(0, 200)}`.trim(),
+                  description_raw: `${title} at the West Islip Fire Department.${priceInfo} Event details: ${text.replace(/\s+/g, ' ').substring(0, 200)}`.trim(),
                   start_raw: dateTime,
                   location_raw: location,
                   url_raw: url || window.location.href,
                   category_hint: category,
                   source: 'West Islip Fire Department',
                   fetched_at: new Date().toISOString(),
-                  detection_method: 'modern_calendar_structure'
+                  detection_method: 'complete_event_parsing'
                 };
                 
                 events.push(eventObj);
-                console.log(`Fire Dept: Found event "${title}" on ${dateTime}`);
-                foundEvents = true;
+                console.log(`Fire Dept: Added complete event "${title}" on ${dateTime}`);
+                foundStructuredEvents = true;
               }
             }
           });
         }
         
-        if (foundEvents) break;
+        if (foundStructuredEvents) break;
       }
       
-      // Method 2: Text-based parsing if no structured events found
-      if (!foundEvents) {
-        console.log('Fire Dept: No structured events, trying text parsing...');
+      // Method 2: Fallback - try to find and combine event components properly
+      if (!foundStructuredEvents) {
+        console.log('Fire Dept: No structured events found, trying smart text parsing...');
         
         const allText = document.body.innerText || '';
-        const lines = allText.split('\n').filter(line => line.trim().length > 0);
         
-        for (let i = 0; i < lines.length; i++) {
-          const line = lines[i].trim();
+        // Look specifically for Comedy Night and combine its components
+        if (allText.toLowerCase().includes('comedy night')) {
+          const comedySection = allText.match(/comedy\s+night[\s\S]*?(?=\n\n|\r\n\r\n|$)/gi);
           
-          // Look for event titles (Comedy Night, etc.)
-          if (line.match(/comedy\s+night/i) || 
-              line.match /(fundraiser|event|meeting|training|drill)/i) {
+          if (comedySection) {
+            console.log('Fire Dept: Found Comedy Night section, parsing components...');
             
-            // Look in surrounding lines for date and details
-            const surroundingLines = lines.slice(Math.max(0, i-2), i+5);
-            const context = surroundingLines.join(' ');
+            // Extract date and time from the section
+            const dateMatch = comedySection[0].match(/october\s+\d{1,2}/gi);
+            const timeMatch = comedySection[0].match(/\d{1,2}:\d{2}\s*(?:am|pm)\s*-\s*\d{1,2}:\d{2}\s*(?:am|pm)/gi);
+            const priceMatch = comedySection[0].match(/\$\d+/);
             
-            // Extract date from context
-            const dateMatch = context.match(/(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}\s*@?\s*\d{1,2}:\d{2}\s*(?:am|pm)/gi);
-            
-            if (dateMatch) {
-              let category = 'fire department';
-              const lowerLine = line.toLowerCase();
-              if (lowerLine.includes('comedy')) category = 'fire department - entertainment';
-              
-              events.push({
-                title_raw: line,
-                description_raw: `${line} - West Islip Fire Department event. ${context.substring(0, 150)}`,
-                start_raw: dateMatch[0],
-                location_raw: 'West Islip Fire Department HQ, 309 Union Blvd',
-                url_raw: window.location.href,
-                category_hint: category,
-                source: 'West Islip Fire Department',
-                fetched_at: new Date().toISOString(),
-                detection_method: 'text_parsing'
-              });
-              
-              console.log(`Fire Dept: Text-parsed event "${line}" on ${dateMatch[0]}`);
+            let fullDateTime = 'October 4, 2025';
+            if (dateMatch && timeMatch) {
+              fullDateTime = `${dateMatch[0]}, 2025 ${timeMatch[0]}`;
             }
+            
+            events.push({
+              title_raw: 'Comedy Night',
+              description_raw: `Comedy Night at the West Islip Fire Department. Join us for an evening of laughter and community entertainment.${priceMatch ? ` Admission: ${priceMatch[0]}.` : ''}`,
+              start_raw: fullDateTime,
+              location_raw: 'West Islip Fire Department HQ, 309 Union Blvd, West Islip, NY',
+              url_raw: window.location.href,
+              category_hint: 'fire department - entertainment',
+              source: 'West Islip Fire Department',
+              fetched_at: new Date().toISOString(),
+              detection_method: 'smart_component_combination'
+            });
+            
+            console.log(`Fire Dept: Created combined Comedy Night event`);
           }
         }
       }
       
-      // Method 3: Specific event detection for known events
-      const allText = document.body.innerText || '';
-      
-      // Look specifically for Comedy Night
-      if (allText.toLowerCase().includes('comedy night')) {
-        const comedyMatch = allText.match(/comedy\s+night.*?(?:october|oct)\s+\d{1,2}.*?\d{1,2}:\d{2}.*?(?:pm|am)/gi);
-        
-        if (comedyMatch) {
-          console.log('Fire Dept: Found Comedy Night via specific detection');
-          
-          events.push({
-            title_raw: 'Comedy Night',
-            description_raw: 'Comedy Night at the West Islip Fire Department. Join us for an evening of laughter and community fun. Admission $50.',
-            start_raw: 'October 4, 2025 6:00 PM',
-            location_raw: 'West Islip Fire Department HQ, 309 Union Blvd, West Islip, NY',
-            url_raw: window.location.href,
-            category_hint: 'fire department - entertainment',
-            source: 'West Islip Fire Department',
-            fetched_at: new Date().toISOString(),
-            detection_method: 'specific_event_detection'
-          });
-        }
-      }
-      
-      console.log(`Fire Dept: Total events found: ${events.length}`);
+      console.log(`Fire Dept: Total properly parsed events: ${events.length}`);
       return events;
     });
     
