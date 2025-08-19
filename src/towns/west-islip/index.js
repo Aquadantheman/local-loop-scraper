@@ -1,10 +1,11 @@
-// src/towns/west-islip/index.js - Fixed imports
+// src/towns/west-islip/index.js - Updated with WIBCC source
 import { log } from 'apify';
 import { scrapeLibrary } from './sources/library.js';
 import { scrapeChamber } from './sources/chamber.js';
 import { scrapeCountryFair } from './sources/country-fair.js';
 import { scrapeHistoricalSociety } from './sources/historical.js';
 import { scrapeFireDepartment } from './sources/fire-dept.js';
+import { scrapeWIBCC } from './sources/wibcc.js';
 
 export async function scrapeWestIslip(page) {
   log.info('=== SCRAPING TOWN: West Islip ===');
@@ -17,12 +18,13 @@ export async function scrapeWestIslip(page) {
     { name: 'Chamber', fn: scrapeChamber, enabled: true },
     { name: 'Country Fair', fn: scrapeCountryFair, enabled: true }, 
     { name: 'Historical Society', fn: scrapeHistoricalSociety, enabled: true },
-    { name: 'Fire Department', fn: scrapeFireDepartment, enabled: true }
+    { name: 'Fire Department', fn: scrapeFireDepartment, enabled: true },
+    { name: 'WIBCC (Breast Cancer Coalition)', fn: scrapeWIBCC, enabled: true }
   ];
   
   for (const [index, source] of sources.entries()) {
     if (!source.enabled) {
-      log.info(`⭐️  Skipping ${source.name} (disabled)`);
+      log.info(`⏭️ Skipping ${source.name} (disabled)`);
       continue;
     }
     
@@ -45,7 +47,7 @@ export async function scrapeWestIslip(page) {
     }
   }
   
-  log.info(`🏘️  West Islip total: ${allEvents.length} events from ${sources.filter(s => s.enabled).length} sources`);
+  log.info(`🏘️ West Islip total: ${allEvents.length} events from ${sources.filter(s => s.enabled).length} sources`);
   
   return allEvents;
 }
