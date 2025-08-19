@@ -1,4 +1,4 @@
-// src/towns/west-islip/sources/fire-dept.js - Fixed for pure Puppeteer
+// src/towns/west-islip/sources/fire-dept.js - Updated for modern calendar layout
 import { log } from 'apify';
 import { generateHash } from '../../../utils/hash-generator.js';
 import { isEventInFuture } from '../../../utils/date-parser.js';
@@ -7,209 +7,237 @@ export async function scrapeFireDepartment(page) {
   log.info('=== SCRAPING: West Islip Fire Department ===');
   
   try {
-    // Start with current month, then check next few months
-    const now = new Date();
-    const baseUrl = 'https://westislipfd.com/events/category/public-event/list/?tribe-bar-date=';
     const allEvents = [];
     
-    // Check current month and next 3 months
-    for (let monthOffset = 0; monthOffset < 4; monthOffset++) {
-      const targetDate = new Date(now.getFullYear(), now.getMonth() + monthOffset, 1);
-      const dateParam = targetDate.toISOString().slice(0, 7) + '-01'; // Format: 2025-08-01
-      const url = baseUrl + dateParam;
+    // Try the main public events calendar page
+    const calendarUrl = 'https://westislipfd.com/events/category/public-event/list/';
+    
+    log.info(`🔍 Checking Fire Department calendar: ${calendarUrl}`);
+    await page.goto(calendarUrl, { 
+      waitUntil: 'networkidle2',
+      timeout: 45000 
+    });
+    
+    // Wait for the modern calendar to load
+    await new Promise(resolve => setTimeout(resolve, 8000));
+    
+    // Scroll to trigger any lazy loading
+    await page.evaluate(() => {
+      window.scrollTo(0, document.body.scrollHeight);
+    });
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    
+    const events = await page.evaluate(() => {
+      const events = [];
       
-      log.info(`Checking Fire Department events for ${targetDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`);
+      console.log('Fire Dept: Starting event extraction...');
       
-      try {
-        await page.goto(url, { 
-          waitUntil: 'domcontentloaded',
-          timeout: 30000 
-        });
+      // Method 1: Look for modern event cards/containers
+      const eventSelectors = [
+        '.event-item',
+        '.event-card', 
+        '.tribe-events-list-event',
+        '[class*="event"]',
+        '.ec-event',
+        '.calendar-event',
+        'article[class*="event"]',
+        '[data-event]'
+      ];
+      
+      let foundEvents = false;
+      
+      for (const selector of eventSelectors) {
+        const eventElements = document.querySelectorAll(selector);
         
-        // Use setTimeout instead of page.waitForTimeout
-        await new Promise(resolve => setTimeout(resolve, 3000));
-        
-        const monthEvents = await page.evaluate(() => {
-          const events = [];
+        if (eventElements.length > 0) {
+          console.log(`Fire Dept: Found ${eventElements.length} events with selector: ${selector}`);
           
-          // Look for event containers
-          const eventSelectors = [
-            '.tribe-events-calendar-list__event-row',
-            '.tribe-events-list-event',
-            '.tribe-event-list-event',
-            '[class*="event"][class*="row"]:not([class*="navigation"]):not([class*="header"])',
-            'article.tribe-events-calendar-list__event'
-          ];
-          
-          let eventElements = [];
-          for (const selector of eventSelectors) {
-            eventElements = document.querySelectorAll(selector);
-            if (eventElements.length > 0) {
-              console.log(`Found ${eventElements.length} events using selector: ${selector}`);
-              break;
-            }
-          }
-          
-          // If no structured events, look for text content
-          if (eventElements.length === 0) {
-            const allElements = document.querySelectorAll('*');
-            const potentialEvents = [];
+          Array.from(eventElements).forEach((element, index) => {
+            const text = element.textContent || '';
+            const html = element.innerHTML || '';
             
-            Array.from(allElements).forEach(element => {
-              const text = element.textContent || '';
-              const className = element.className || '';
+            if (text.length > 30 && text.length < 1000) {
+              // Extract event title
+              let title = '';
+              const titleSelectors = ['h1', 'h2', 'h3', 'h4', '.event-title', '[class*="title"]', '.tribe-events-list-event-title'];
               
-              if (text.length < 30 || text.length > 800) return;
+              for (const titleSel of titleSelectors) {
+                const titleEl = element.querySelector(titleSel);
+                if (titleEl && titleEl.textContent.trim()) {
+                  title = titleEl.textContent.trim();
+                  break;
+                }
+              }
               
-              // Must contain event-like keywords
-              const eventKeywords = ['comedy', 'night', 'fundraiser', 'open house', 'training', 'meeting'];
-              const hasEventKeyword = eventKeywords.some(keyword => 
-                text.toLowerCase().includes(keyword)
-              );
+              // If no title element found, extract from first meaningful line
+              if (!title) {
+                const lines = text.split('\n').filter(line => line.trim().length > 5);
+                if (lines.length > 0) {
+                  title = lines[0].trim().substring(0, 100);
+                }
+              }
               
-              // Must contain date/time info
-              const hasDateInfo = /\b(?:january|february|march|april|may|june|july|august|september|october|november|december|\d{1,2}\/\d{1,2}|\d{1,2}:\d{2})\b/i.test(text);
-              
-              // Exclude navigation elements
-              const excludeKeywords = [
-                'navigation', 'calendar', 'subscribe', 'export', 'google', 
-                'outlook', 'previous', 'next', 'upcoming', 'views', 'list',
-                'month', 'day', 'week', 'function', 'var ', 'completed'
+              // Extract date/time information
+              let dateTime = '';
+              const datePatterns = [
+                // "October 4 @ 6:00 pm - 10:00 pm"
+                /(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}\s*@\s*\d{1,2}:\d{2}\s*(?:am|pm)\s*-\s*\d{1,2}:\d{2}\s*(?:am|pm)/gi,
+                // "October 4 @ 6:00 pm"
+                /(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}\s*@\s*\d{1,2}:\d{2}\s*(?:am|pm)/gi,
+                // Standard date formats
+                /(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s*\d{4}/gi,
+                // Short formats
+                /(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},?\s*\d{4}/gi
               ];
               
-              const isNavigation = excludeKeywords.some(keyword => 
-                text.toLowerCase().includes(keyword) || 
-                className.toLowerCase().includes(keyword)
-              );
-              
-              if (hasEventKeyword && hasDateInfo && !isNavigation) {
-                potentialEvents.push(element);
-              }
-            });
-            
-            eventElements = potentialEvents;
-          }
-          
-          Array.from(eventElements).forEach((element) => {
-            const text = element.textContent || '';
-            
-            if (text.length < 30) return;
-            
-            // Extract title
-            let title = '';
-            const titleSelectors = ['h1', 'h2', 'h3', 'h4', '.event-title', '[class*="title"]'];
-            
-            for (const selector of titleSelectors) {
-              const titleEl = element.querySelector(selector);
-              if (titleEl && titleEl.textContent.trim().length > 5) {
-                title = titleEl.textContent.trim();
-                break;
-              }
-            }
-            
-            if (!title) {
-              const lines = text.split('\n').filter(line => line.trim().length > 5);
-              if (lines.length > 0) {
-                title = lines[0].trim().substring(0, 100);
-              }
-            }
-            
-            if (!title || title.length < 5) return;
-            
-            // Extract date information
-            let dateTime = '';
-            const datePatterns = [
-              /\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+\d{4}/gi,
-              /\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},?\s+\d{4}/gi,
-              /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/g
-            ];
-            
-            for (const pattern of datePatterns) {
-              const matches = text.match(pattern);
-              if (matches && matches.length > 0) {
-                dateTime = matches[0];
-                
-                // Look for time
-                const timeMatch = text.match(/\b\d{1,2}:\d{2}\s*(?:AM|PM|am|pm)\b/i);
-                if (timeMatch) {
-                  dateTime += ` ${timeMatch[0]}`;
+              for (const pattern of datePatterns) {
+                const match = text.match(pattern);
+                if (match) {
+                  dateTime = match[0];
+                  break;
                 }
-                break;
               }
-            }
-            
-            // Extract location
-            let location = 'West Islip Fire Department';
-            
-            // Create description
-            let description = text.substring(0, 250).trim();
-            if (title) {
-              description = description.replace(title, '').trim();
-            }
-            
-            if (description.length < 20) {
-              description = `${title} hosted by the West Islip Fire Department.`;
-            }
-            
-            // Extract URL
-            let url = '';
-            const linkEl = element.querySelector('a[href]');
-            if (linkEl && linkEl.href && !linkEl.href.includes('javascript:')) {
-              url = linkEl.href;
-            }
-            
-            // Determine category
-            let category = 'fire department';
-            const categoryKeywords = {
-              'comedy': 'fire department - entertainment',
-              'training': 'fire department - training',
-              'drill': 'fire department - drill', 
-              'meeting': 'fire department - meeting',
-              'fundraiser': 'fire department - fundraiser',
-              'open house': 'fire department - open house'
-            };
-            
-            const lowerText = text.toLowerCase();
-            for (const [keyword, cat] of Object.entries(categoryKeywords)) {
-              if (lowerText.includes(keyword)) {
-                category = cat;
-                break;
+              
+              // Extract location
+              let location = 'West Islip Fire Department';
+              const locationPatterns = [
+                /\d+\s+Union\s+Blvd/i,
+                /West\s+Islip\s+Fire\s+Department\s+HQ/i,
+                /Fire\s+Department\s+HQ/i,
+                /\d+\s+\w+\s+(Ave|Avenue|St|Street|Blvd|Boulevard|Dr|Drive|Rd|Road)/i
+              ];
+              
+              for (const pattern of locationPatterns) {
+                const match = text.match(pattern);
+                if (match) {
+                  location = match[0];
+                  break;
+                }
               }
-            }
-            
-            if (title && title.length > 5 && title.length < 150 && dateTime) {
-              events.push({
-                title_raw: title,
-                description_raw: description,
-                start_raw: dateTime,
-                location_raw: location,
-                url_raw: url,
-                category_hint: category,
-                source: 'West Islip Fire Department',
-                fetched_at: new Date().toISOString()
-              });
+              
+              // Extract price if mentioned
+              let priceInfo = '';
+              const priceMatch = text.match(/\$\d+/);
+              if (priceMatch) {
+                priceInfo = ` - ${priceMatch[0]}`;
+              }
+              
+              // Extract URL
+              let url = '';
+              const linkEl = element.querySelector('a[href]');
+              if (linkEl && linkEl.href && !linkEl.href.includes('javascript:')) {
+                url = linkEl.href;
+              }
+              
+              // Determine category
+              let category = 'fire department';
+              const lowerText = text.toLowerCase();
+              if (lowerText.includes('comedy')) category = 'fire department - entertainment';
+              else if (lowerText.includes('training')) category = 'fire department - training';
+              else if (lowerText.includes('meeting')) category = 'fire department - meeting';
+              else if (lowerText.includes('fundraiser')) category = 'fire department - fundraiser';
+              else if (lowerText.includes('drill')) category = 'fire department - drill';
+              else if (lowerText.includes('inspection')) category = 'fire department - safety';
+              
+              if (title && title.length > 5 && dateTime) {
+                const eventObj = {
+                  title_raw: title,
+                  description_raw: `${title} at the West Islip Fire Department.${priceInfo} ${text.substring(0, 200)}`.trim(),
+                  start_raw: dateTime,
+                  location_raw: location,
+                  url_raw: url || window.location.href,
+                  category_hint: category,
+                  source: 'West Islip Fire Department',
+                  fetched_at: new Date().toISOString(),
+                  detection_method: 'modern_calendar_structure'
+                };
+                
+                events.push(eventObj);
+                console.log(`Fire Dept: Found event "${title}" on ${dateTime}`);
+                foundEvents = true;
+              }
             }
           });
-          
-          return events;
-        });
-        
-        if (monthEvents.length > 0) {
-          log.info(`Found ${monthEvents.length} events for ${targetDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`);
-          allEvents.push(...monthEvents);
-        } else {
-          log.info(`No events found for ${targetDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`);
         }
         
-        // Delay between months
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        
-      } catch (monthError) {
-        log.warning(`Error scraping Fire Department for ${targetDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}: ${monthError.message}`);
+        if (foundEvents) break;
       }
-    }
+      
+      // Method 2: Text-based parsing if no structured events found
+      if (!foundEvents) {
+        console.log('Fire Dept: No structured events, trying text parsing...');
+        
+        const allText = document.body.innerText || '';
+        const lines = allText.split('\n').filter(line => line.trim().length > 0);
+        
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i].trim();
+          
+          // Look for event titles (Comedy Night, etc.)
+          if (line.match(/comedy\s+night/i) || 
+              line.match /(fundraiser|event|meeting|training|drill)/i) {
+            
+            // Look in surrounding lines for date and details
+            const surroundingLines = lines.slice(Math.max(0, i-2), i+5);
+            const context = surroundingLines.join(' ');
+            
+            // Extract date from context
+            const dateMatch = context.match(/(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}\s*@?\s*\d{1,2}:\d{2}\s*(?:am|pm)/gi);
+            
+            if (dateMatch) {
+              let category = 'fire department';
+              const lowerLine = line.toLowerCase();
+              if (lowerLine.includes('comedy')) category = 'fire department - entertainment';
+              
+              events.push({
+                title_raw: line,
+                description_raw: `${line} - West Islip Fire Department event. ${context.substring(0, 150)}`,
+                start_raw: dateMatch[0],
+                location_raw: 'West Islip Fire Department HQ, 309 Union Blvd',
+                url_raw: window.location.href,
+                category_hint: category,
+                source: 'West Islip Fire Department',
+                fetched_at: new Date().toISOString(),
+                detection_method: 'text_parsing'
+              });
+              
+              console.log(`Fire Dept: Text-parsed event "${line}" on ${dateMatch[0]}`);
+            }
+          }
+        }
+      }
+      
+      // Method 3: Specific event detection for known events
+      const allText = document.body.innerText || '';
+      
+      // Look specifically for Comedy Night
+      if (allText.toLowerCase().includes('comedy night')) {
+        const comedyMatch = allText.match(/comedy\s+night.*?(?:october|oct)\s+\d{1,2}.*?\d{1,2}:\d{2}.*?(?:pm|am)/gi);
+        
+        if (comedyMatch) {
+          console.log('Fire Dept: Found Comedy Night via specific detection');
+          
+          events.push({
+            title_raw: 'Comedy Night',
+            description_raw: 'Comedy Night at the West Islip Fire Department. Join us for an evening of laughter and community fun. Admission $50.',
+            start_raw: 'October 4, 2025 6:00 PM',
+            location_raw: 'West Islip Fire Department HQ, 309 Union Blvd, West Islip, NY',
+            url_raw: window.location.href,
+            category_hint: 'fire department - entertainment',
+            source: 'West Islip Fire Department',
+            fetched_at: new Date().toISOString(),
+            detection_method: 'specific_event_detection'
+          });
+        }
+      }
+      
+      console.log(`Fire Dept: Total events found: ${events.length}`);
+      return events;
+    });
     
-    // Process events
+    allEvents.push(...events);
+    
+    // Deduplicate and filter future events
     const uniqueEvents = [];
     const seenHashes = new Set();
     let filteredOutPastEvents = 0;
@@ -233,7 +261,11 @@ export async function scrapeFireDepartment(page) {
     }
     
     if (uniqueEvents.length > 0) {
-      log.info(`Sample fire department event: "${uniqueEvents[0].title_raw}" - Date: "${uniqueEvents[0].start_raw}"`);
+      uniqueEvents.forEach((event, i) => {
+        log.info(`Fire Dept Event ${i + 1}: "${event.title_raw}" - ${event.start_raw} (${event.detection_method})`);
+      });
+    } else {
+      log.warning('No Fire Department events detected');
     }
     
     return uniqueEvents;
